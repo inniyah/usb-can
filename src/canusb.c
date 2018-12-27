@@ -173,7 +173,7 @@ int frame_send(unsigned char *frame, int frame_len) {
 
     result = (int) write(tty_fd, frame, (size_t) frame_len);
     if (result == -1) {
-        syslog(LOG_ERR, "write() failed: %s", strerror(errno));
+        sys_logger(LOG_ERR, "write() failed: %s", strerror(errno));
         return -1;
     }
 
@@ -196,7 +196,7 @@ int frame_recv(unsigned char *frame, int frame_len_max) {
         result = read(tty_fd, &byte, 1);
         if (result == -1) {
             if (errno != EAGAIN && errno != EWOULDBLOCK) {
-                syslog(LOG_ERR, "read() failed: %s", strerror(errno));
+                sys_logger(LOG_ERR, "read() failed: %s", strerror(errno));
                 return -1;
             }
 
@@ -206,7 +206,7 @@ int frame_recv(unsigned char *frame, int frame_len_max) {
             }
 
             if (frame_len == frame_len_max) {
-                syslog(LOG_ERR, "frame_recv() failed: Overflow");
+                sys_logger(LOG_ERR, "frame_recv() failed: Overflow");
                 return -1;
             }
 
@@ -221,7 +221,7 @@ int frame_recv(unsigned char *frame, int frame_len_max) {
             }
         }
 
-        usleep(10);
+        usleep(1000);
     }
 
     if (print_traffic) {
@@ -232,7 +232,7 @@ int frame_recv(unsigned char *frame, int frame_len_max) {
     if ((frame_len == 20) && (frame[0] == PACKET_START_FLAG) && (frame[1] == 0x55)) {
         checksum = generate_checksum(&frame[2], 17);
         if (checksum != frame[frame_len - 1]) {
-            syslog(LOG_ERR, "frame_recv() failed: Checksum incorrect");
+            sys_logger(LOG_ERR, "frame_recv() failed: Checksum incorrect");
             return -1;
         }
     }
@@ -301,11 +301,12 @@ void serial_adapter_to_can(CANUSB_FRAME_TYPE type, char *adapter_name) {
     struct timespec ts;
 
     while (can_usb_running) {
+        usleep(100);
 
         frame_len = frame_recv(frame, sizeof(frame));
 
         if (frame_len == -1) {
-            syslog(LOG_WARNING, "Frame recieve error!");
+            sys_logger(LOG_WARNING, "Frame recieve error!");
         } else {
             // only handle complete data frames
             if ((frame_len >= 6) &&
@@ -391,15 +392,15 @@ void *can_to_serial_adapter(void *arg) {
 
     struct timeval timeout = {1, 0};
     fd_set readSet;
-    FD_ZERO(&readSet);
-    FD_SET(can_soc_fd, &readSet);
+//    FD_ZERO(&readSet);
+//    FD_SET(can_soc_fd, &readSet);
 
     int i, j;
 
     CANUSB_FRAME_TYPE type = (CANUSB_FRAME_TYPE) arg;
 
     while (can_usb_running) {
-        usleep(10);
+        usleep(100);
 
         FD_ZERO(&readSet);
         FD_SET(can_soc_fd, &readSet);
@@ -458,7 +459,7 @@ int handle_bus_data(CANUSB_FRAME_TYPE type, char *adapter_name) {
     // serial to can will run in the current thread.
     pthread_t can_to_serial_thread;
     if (pthread_create(&can_to_serial_thread, NULL, &can_to_serial_adapter, (void *) type)) {
-        syslog(LOG_ERR, "Error creating can to serial thread");
+        sys_logger(LOG_ERR, "Error creating can to serial thread");
         return -1;
     }
 
@@ -474,15 +475,15 @@ int init_can_socket(const char *port) {
     /* open socket */
     can_soc_fd = socket(PF_CAN, SOCK_RAW, CAN_RAW);
     if (can_soc_fd < 0) {
-        return -1;
+        return 0;
     }
 
     addr.can_family = AF_CAN;
     strcpy(ifr.ifr_name, port);
 
     if (ioctl(can_soc_fd, SIOCGIFINDEX, &ifr) < 0) {
-        syslog(LOG_ERR, "ioctl() failed: %s", strerror(errno));
-        return -1;
+        sys_logger(LOG_ERR, "ioctl() failed: %s", strerror(errno));
+        return 0;
     }
 
     addr.can_ifindex = ifr.ifr_ifindex;
@@ -490,8 +491,8 @@ int init_can_socket(const char *port) {
     fcntl(can_soc_fd, F_SETFL, O_NONBLOCK);
 
     if (bind(can_soc_fd, (struct sockaddr *) &addr, sizeof(addr)) < 0) {
-        syslog(LOG_ERR, "bind() failed: %s", strerror(errno));
-        return (-1);
+        sys_logger(LOG_ERR, "bind() failed: %s", strerror(errno));
+        return 0;
     }
 
     return 1;
@@ -503,13 +504,13 @@ int init_serial_adapter(char *tty_device, int baudrate) {
 
     tty_fd = open(tty_device, O_RDWR | O_NOCTTY | O_NONBLOCK);
     if (tty_fd == -1) {
-        syslog(LOG_ERR, "open(%s) failed: %s\n", tty_device, strerror(errno));
+        sys_logger(LOG_ERR, "open(%s) failed: %s\n", tty_device, strerror(errno));
         return -1;
     }
 
     result = ioctl(tty_fd, TCGETS2, &tio);
     if (result == -1) {
-        syslog(LOG_ERR, "ioctl() failed: %s\n", strerror(errno));
+        sys_logger(LOG_ERR, "ioctl() failed: %s\n", strerror(errno));
         close(tty_fd);
         return -1;
     }
@@ -524,7 +525,7 @@ int init_serial_adapter(char *tty_device, int baudrate) {
 
     result = ioctl(tty_fd, TCSETS2, &tio);
     if (result == -1) {
-        syslog(LOG_ERR, "ioctl() failed: %s\n", strerror(errno));
+        sys_logger(LOG_ERR, "ioctl() failed: %s\n", strerror(errno));
         close(tty_fd);
         return -1;
     }
@@ -564,6 +565,28 @@ void display_help(char *progname) {
                     "usbcan -p -s 500000 -d /dev/ttyUSB0 -t -F\n\n"
                     "Open interface with 500kBaud and run as deamon:\n"
                     "usbcan -s 500000 -d /dev/ttyUSB0\n\n");
+}
+
+void teardown(char *can_adapter) {
+    if (NULL != can_adapter) {
+        char buf[256];
+        int c;
+        snprintf(buf, sizeof buf, "%s %s", "ip link delete dev", can_adapter);
+        c = system(buf);
+        if (c != 0) {
+            sys_logger(LOG_ERR, "failed to delete adapter");
+            exit(EXIT_FAILURE);
+        } else {
+            sys_logger(LOG_DEBUG, "deleted can adapter");
+        }
+    }
+
+    if (0 != can_soc_fd) {
+        close(can_soc_fd);
+    }
+    if (0 != tty_fd) {
+        close(can_soc_fd);
+    }
 }
 
 int main(int argc, char *argv[]) {
@@ -638,14 +661,10 @@ int main(int argc, char *argv[]) {
     }
 
     // init vcan
-    if (!init_can_socket(can_adapter)) {
-        syslog(LOG_ERR, "failed to setup socket can");
-        return EXIT_FAILURE;
-    }
-
     c = system("modprobe vcan");
     if (c != 0) {
         sys_logger(LOG_ERR, "failed to load vcan module");
+        teardown(NULL);
         return EXIT_FAILURE;
     }
 
@@ -653,6 +672,7 @@ int main(int argc, char *argv[]) {
     c = system(buf);
     if (c != 0) {
         sys_logger(LOG_ERR, "failed to create can adapter");
+        teardown(NULL);
         return EXIT_FAILURE;
     }
 
@@ -660,37 +680,44 @@ int main(int argc, char *argv[]) {
     c = system(buf);
     if (c != 0) {
         sys_logger(LOG_ERR, "failed to bring adapter up");
+        teardown(can_adapter);
         return EXIT_FAILURE;
     }
+
+    if (!init_can_socket(can_adapter)) {
+        sys_logger(LOG_ERR, "failed to setup socket can");
+        teardown(NULL);
+        return EXIT_FAILURE;
+    }
+
 
 
     /* Daemonize */
     if (run_as_daemon) {
         if (daemon(0, 0)) {
             sys_logger(LOG_ERR, "failed to daemonize");
+            teardown(can_adapter);
             exit(EXIT_FAILURE);
         }
-    } else {
-        /* Trap signals that we expect to receive */
-        signal(SIGINT, child_handler);
-        signal(SIGTERM, child_handler);
     }
+
+    /* Trap signals that we expect to receive */
+    signal(SIGINT, child_handler);
+    signal(SIGTERM, child_handler);
 
     can_usb_running = 1;
 
+    // configure interface
     command_settings(speed, CANUSB_MODE_NORMAL, type);
+
+    // start handling
     if (-1 == handle_bus_data(type, can_adapter)) {
         sys_logger(LOG_ERR, "failed to start communication listener");
-        return EXIT_FAILURE;
+        exit_code = EXIT_FAILURE;
     }
 
     // cleanup
-    snprintf(buf, sizeof buf, "%s %s", "ip link delete dev", can_adapter);
-    c = system(buf);
-    if (c != 0) {
-        sys_logger(LOG_ERR, "failed to delete adapter");
-        return EXIT_FAILURE;
-    }
+    teardown(can_adapter);
 
 
     return exit_code;

@@ -1,4 +1,4 @@
-[![Build Status](https://travis-ci.com/alexmohr/usb-can.svg?branch=master)](https://travis-ci.com/alexmohr/usb-can)
+[![Build Status](https://travis-ci.org/alexmohr/usb-can.svg?branch=master)](https://travis-ci.com/alexmohr/usb-can)
 # USB-CAN Analyzer Linux Support
 This is a hard fork of https://github.com/kobolt/usb-can.
 

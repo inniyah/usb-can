@@ -174,7 +174,7 @@ int frame_send(unsigned char *frame, int frame_len) {
     result = (int) write(tty_fd, frame, (size_t) frame_len);
     if (result == -1) {
         sys_logger(LOG_ERR, "write() failed: %s", strerror(errno));
-        return -1;
+        return -2;
     }
 
     return frame_len;
@@ -350,7 +350,7 @@ void remove_from_recv_stack(char **array, int index, int array_length) {
     }
 }
 
-void send_data_frame(const unsigned char *data, const int data_length, const CANUSB_FRAME_TYPE type, const int id) {
+int send_data_frame(const unsigned char *data, const int data_length, const CANUSB_FRAME_TYPE type, const int id) {
     unsigned char *frame;
     int frame_size = 3 + data_length;
     int data_index = 0, i;
@@ -382,7 +382,7 @@ void send_data_frame(const unsigned char *data, const int data_length, const CAN
         frame[i] = data[i - data_index];
     }
 
-    frame_send(frame, frame_size);
+    return frame_send(frame, frame_size);
 }
 
 void *can_to_serial_adapter(void *arg) {
@@ -448,7 +448,14 @@ void *can_to_serial_adapter(void *arg) {
         }
 
         // create a data frame and send it to the serial adapter
-        send_data_frame(frame_rd.data, frame_rd.can_dlc, type, frame_rd.can_id);
+        i = send_data_frame(frame_rd.data, frame_rd.can_dlc, type, frame_rd.can_id);
+
+        // fatal error like device disconnected
+        if (i < -1) {
+            sys_logger(LOG_ERR, "Application like will close due to fatal r/w error.");
+            can_usb_running = 0;
+        }
+
     }
 
     return NULL;

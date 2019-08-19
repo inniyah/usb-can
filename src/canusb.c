@@ -363,8 +363,12 @@ int send_data_frame(const unsigned char *data, const int data_length, const CANU
     frame = (unsigned char *) malloc((size_t) frame_size);
     frame[0] = (unsigned char) PACKET_START_FLAG;
     frame[frame_size - 1] = PACKET_END_FLAG;
-    frame[1] = (unsigned char) (0xc0 | data_length);
 
+    if (CANUSB_FRAME_STANDARD == type) {
+        frame[1] = (unsigned char) (0xc0 | data_length);
+    } else {
+        frame[1] = (unsigned char) (0xe0 | data_length);
+    }
 
     if (CANUSB_FRAME_STANDARD == type) {
         frame[2] = (unsigned char) (id & 0xFF);

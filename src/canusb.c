@@ -31,6 +31,7 @@ typedef enum {
 int print_traffic = 0;
 int print_frames = 0;
 int can_usb_running = 0;
+int listen_only = 0;
 int exit_code = EXIT_SUCCESS;
 char *tty_path = NULL;
 int tty_fd = 0;
@@ -306,7 +307,7 @@ void serial_adapter_to_can(CANUSB_FRAME_TYPE type, char *adapter_name) {
         frame_len = frame_recv(frame, sizeof(frame));
 
         if (frame_len == -1) {
-            sys_logger(LOG_WARNING, "Frame recieve error!");
+            sys_logger(LOG_WARNING, "Frame receive error!");
         } else {
             // only handle complete data frames
             if ((frame_len >= 6) &&
@@ -389,8 +390,14 @@ int send_data_frame(const unsigned char *data, const int data_length, const CANU
     return frame_send(frame, frame_size);
 }
 
-void *can_to_serial_adapter(void *arg) {
 
+/*
+    Copy data from socket can to the serial adapter
+*/
+void *can_to_serial_adapter(void *arg) {
+    // do not send any data when in listen only mode
+    if (listen_only)
+        return;
     struct can_frame frame_rd;
     ssize_t recv_bytes = 0;
 
@@ -433,14 +440,15 @@ void *can_to_serial_adapter(void *arg) {
             if (equal) {
                 remove_from_recv_stack((char **) recvStack, i, RECV_STACK_SIZE);
                 recvStackElements--;
-                pthread_mutex_unlock(&recvStackMutex);
-
-                // make sure we only remove 1 message from the stack
-                continue;
+                break;
             }
         }
 
         pthread_mutex_unlock(&recvStackMutex);
+        if (equal){
+            sys_logger(LOG_DEBUG, "Not sending message which has been received.");
+            continue;
+        }
 
         // print frames we received to std out.
         if (print_frames) {
@@ -552,6 +560,7 @@ void display_help(char *progname) {
                     "  -t          Print TTY/serial traffic debugging info on stderr.\n"
                     "  -d DEVICE   Use TTY DEVICE.\n"
                     "  -s SPEED    Set CAN SPEED in bps.\n"
+                    "  -l          Set interface to listen only\n"
                     "  -p          Prints the data which will be sent via socket can to std out.\n"
                     "  -e          Set interface to extended frame mode. \n"
                     "  -F          Stay in foreground; no daemonize. \n"
@@ -595,11 +604,14 @@ int main(int argc, char *argv[]) {
     char *can_adapter = "slcan0";
     char buf[256];
 
-    while ((c = getopt(argc, argv, "htd:s:b:n:eFp")) != -1) {
+    while ((c = getopt(argc, argv, "htd:s:b:n:eFpl")) != -1) {
         switch (c) {
             case 'h':
                 display_help(argv[0]);
                 return EXIT_SUCCESS;
+
+            case 'l': 
+                listen_only = 1;
 
             case 't':
                 print_traffic = 1;
@@ -705,7 +717,10 @@ int main(int argc, char *argv[]) {
     can_usb_running = 1;
 
     // configure interface
-    command_settings(speed, CANUSB_MODE_NORMAL, type);
+    CANUSB_MODE mode = CANUSB_MODE_NORMAL;
+    if (listen_only)
+        mode = CANUSB_MODE_SILENT;
+    command_settings(speed, mode, type);
 
     // start handling
     if (-1 == handle_bus_data(type, can_adapter)) {

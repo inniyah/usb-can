@@ -397,7 +397,7 @@ int send_data_frame(const unsigned char *data, const int data_length, const CANU
 void *can_to_serial_adapter(void *arg) {
     // do not send any data when in listen only mode
     if (listen_only)
-        return;
+        return NULL;
     struct can_frame frame_rd;
     ssize_t recv_bytes = 0;
 

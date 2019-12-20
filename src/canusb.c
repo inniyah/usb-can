@@ -431,7 +431,7 @@ void *can_to_serial_adapter(void *arg) {
 
         // check recv stack if this message is from serial bus.
         pthread_mutex_lock(&recvStackMutex);
-        int equal = 1;
+        int equal = recvStackElements > 0;
         for (i = 0; i < recvStackElements; i++) {
             for (j = 0; j < frame_rd.can_dlc; j++) {
                 equal &= frame_rd.data[j] == recvStack[i][j];
@@ -612,6 +612,7 @@ int main(int argc, char *argv[]) {
 
             case 'l': 
                 listen_only = 1;
+                break;
 
             case 't':
                 print_traffic = 1;

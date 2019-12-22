@@ -286,6 +286,10 @@ unsigned int get_frame_id(const unsigned char *frame, const CANUSB_FRAME_TYPE ty
     return id;
 }
 
+/* 
+    Get data from the serial adapter and 
+    send it via can send to the virtual interface
+*/
 void serial_adapter_to_can(CANUSB_FRAME_TYPE type, char *adapter_name) {
     int i, c = 0, frame_len = 0;
     unsigned char frame[32];
@@ -334,7 +338,8 @@ void serial_adapter_to_can(CANUSB_FRAME_TYPE type, char *adapter_name) {
                     printf("Frame ID: %02x, Data: %s\n", frame_id, dbuf);
                 }
 
-                // send data via can
+                // send data via vcan
+                // run shell command for sending
                 snprintf(buf, sizeof buf, "%s %s %02x#%s", "cansend", adapter_name, frame_id, dbuf);
                 c = system(buf);
                 if (c != 0) {

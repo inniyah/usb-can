@@ -314,10 +314,11 @@ void serial_adapter_to_can(CANUSB_FRAME_TYPE type, char *adapter_name) {
                 is_data_frame(frame)) {
 
                 // add data to recv stack
-                pthread_mutex_lock(&recvStackMutex);
-                memcpy(recvStack[recvStackElements++], frame + offset, (size_t) (frame_len - offset - 1));
-                pthread_mutex_unlock(&recvStackMutex);
-
+                if (!listen_only) {
+                    pthread_mutex_lock(&recvStackMutex);
+                    memcpy(recvStack[recvStackElements++], frame + offset, (size_t) (frame_len - offset - 1));
+                    pthread_mutex_unlock(&recvStackMutex);
+                }
 
                 // prepare data for print and for can send
                 unsigned int frame_id = get_frame_id(frame, type);
@@ -392,12 +393,10 @@ int send_data_frame(const unsigned char *data, const int data_length, const CANU
 
 
 /*
-    Copy data from socket can to the serial adapter
+    Copy data from the bus to the serial adapter
 */
 void *can_to_serial_adapter(void *arg) {
     // do not send any data when in listen only mode
-    if (listen_only)
-        return NULL;
     struct can_frame frame_rd;
     ssize_t recv_bytes = 0;
 
@@ -473,17 +472,24 @@ void *can_to_serial_adapter(void *arg) {
     return NULL;
 }
 
-int handle_bus_data(CANUSB_FRAME_TYPE type, char *adapter_name) {
-    // can to serial will run in a new thread,
-    // serial to can will run in the current thread.
-    pthread_t can_to_serial_thread;
-    if (pthread_create(&can_to_serial_thread, NULL, &can_to_serial_adapter, (void *) type)) {
-        sys_logger(LOG_ERR, "Error creating can to serial thread");
-        return -1;
-    }
+int start_data_handling(CANUSB_FRAME_TYPE type, char *adapter_name) {
+    if (listen_only) {
+        serial_adapter_to_can(type, adapter_name);
+    } else { 
+        pthread_t can_to_serial_thread;
+        
+        // create receive thread
+        if (pthread_create(&can_to_serial_thread, NULL, &can_to_serial_adapter, (void *) type)) {
+            sys_logger(LOG_ERR, "Error creating can to serial thread");
+            return -1;  
+        }
 
-    serial_adapter_to_can(type, adapter_name);
-    pthread_join(can_to_serial_thread, NULL);
+        // can to serial will run in a new thread,
+        // serial to can will run in the current thread.
+        serial_adapter_to_can(type, adapter_name);    
+        pthread_join(can_to_serial_thread, NULL);
+    }
+    
     return 0;
 }
 
@@ -719,12 +725,16 @@ int main(int argc, char *argv[]) {
 
     // configure interface
     CANUSB_MODE mode = CANUSB_MODE_NORMAL;
-    if (listen_only)
+    if (listen_only) {
         mode = CANUSB_MODE_SILENT;
+        sys_logger(LOG_INFO, "Staring in listen mode");
+    }
+        
+    // configure the interface 
     command_settings(speed, mode, type);
 
     // start handling
-    if (-1 == handle_bus_data(type, can_adapter)) {
+    if (-1 == start_data_handling(type, can_adapter)) {
         sys_logger(LOG_ERR, "failed to start communication listener");
         exit_code = EXIT_FAILURE;
     }

@@ -304,7 +304,7 @@ void serial_adapter_to_can(CANUSB_FRAME_TYPE type, char *adapter_name) {
     }
 
     struct timespec ts;
-
+    sys_logger(LOG_DEBUG, "Serial adapter to vcan handler running...");
     while (can_usb_running) {
         usleep(100);
 
@@ -479,7 +479,6 @@ void *can_to_serial_adapter(void *arg) {
 
 int start_data_handling(CANUSB_FRAME_TYPE type, char *adapter_name) {
     if (listen_only) {
-        sys_logger(LOG_DEBUG, "Listen only data handling.");
         serial_adapter_to_can(type, adapter_name);
     } else { 
         pthread_t can_to_serial_thread;

@@ -479,6 +479,7 @@ void *can_to_serial_adapter(void *arg) {
 
 int start_data_handling(CANUSB_FRAME_TYPE type, char *adapter_name) {
     if (listen_only) {
+        sys_logger(LOG_DEBUG, "Listen only data handling.");
         serial_adapter_to_can(type, adapter_name);
     } else { 
         pthread_t can_to_serial_thread;
@@ -681,7 +682,8 @@ int main(int argc, char *argv[]) {
         return EXIT_FAILURE;
     }
 
-    // init vcan
+    // load the kernel module
+    // todo request root rights
     c = system("modprobe vcan");
     if (c != 0) {
         sys_logger(LOG_ERR, "failed to load vcan module");
@@ -720,6 +722,8 @@ int main(int argc, char *argv[]) {
             teardown(can_adapter);
             exit(EXIT_FAILURE);
         }
+    } else {
+        sys_logger(LOG_DEBUG, "Running in foreground process");
     }
 
     /* Trap signals that we expect to receive */

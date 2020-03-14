@@ -19,7 +19,7 @@
 
 // baudrate seems to be fixed for the device.
 #define CAN_USB_BAUDRATE 2000000
-#define RECV_STACK_SIZE 1024
+#define RECV_STACK_SIZE 128
 
 typedef enum {
     RECEIVING,
@@ -39,8 +39,8 @@ int can_soc_fd = 0;
 
 // recv stack is used to store frames which have been read from the serial interface
 // can_to_serial is reading this stack to prevent sending read frames back to to serial interface
-int rcvActvStckElmnt = 0;
-struct can_frame recvStack[RECV_STACK_SIZE];
+int recvStackElements = 0;
+char recvStack[RECV_STACK_SIZE][8];
 pthread_mutex_t recvStackMutex = PTHREAD_MUTEX_INITIALIZER;
 
 
@@ -286,13 +286,6 @@ unsigned int get_frame_id(const unsigned char *frame, const CANUSB_FRAME_TYPE ty
     return id;
 }
 
-void empty_recv_stack_element(int index) {
-    recvStack[index].can_id = 0;
-    memset(recvStack[index].data, recvStack[index].can_dlc, 0);
-    recvStack[index].can_dlc = 0;
-    rcvActvStckElmnt--;
-}
-
 /* 
     Get data from the serial adapter and 
     send it via can send to the virtual interface
@@ -300,7 +293,7 @@ void empty_recv_stack_element(int index) {
 void serial_adapter_to_can(CANUSB_FRAME_TYPE type, char *adapter_name) {
     int i, c = 0, frame_len = 0;
     unsigned char frame[32];
-    char buf[4096];
+    char buf[256];
     char dbuf[16];
 
     int offset = 2;
@@ -324,22 +317,18 @@ void serial_adapter_to_can(CANUSB_FRAME_TYPE type, char *adapter_name) {
             if ((frame_len >= 6) &&
                 is_data_frame(frame)) {
 
+                // add data to recv stack
+                if (!listen_only) {
+                    pthread_mutex_lock(&recvStackMutex);
+                    memcpy(recvStack[recvStackElements++], frame + offset, (size_t) (frame_len - offset - 1));
+                    pthread_mutex_unlock(&recvStackMutex);
+                }
+
                 // prepare data for print and for can send
                 unsigned int frame_id = get_frame_id(frame, type);
                 memset(dbuf, 0, sizeof dbuf);
                 for (i = offset; i < frame_len - 1; i++) {
                     c += snprintf(dbuf + c, sizeof dbuf, "%02x", frame[i]);
-                }
-
-                // add data to recv stack
-                if (!listen_only) {
-                    pthread_mutex_lock(&recvStackMutex);
-                    struct can_frame;
-                    recvStack[rcvActvStckElmnt].can_id = frame_id;
-                    recvStack[rcvActvStckElmnt].can_dlc = i;
-                    memcpy(recvStack[rcvActvStckElmnt].data, dbuf, i);
-                    rcvActvStckElmnt++;
-                    pthread_mutex_unlock(&recvStackMutex);
                 }
 
                 // print data to stdout
@@ -351,19 +340,22 @@ void serial_adapter_to_can(CANUSB_FRAME_TYPE type, char *adapter_name) {
 
                 // send data via vcan
                 // run shell command for sending
-                snprintf(buf, sizeof buf, "%s %s %03x#%s", "cansend", adapter_name, frame_id, dbuf);
+                snprintf(buf, sizeof buf, "%s %s %02x#%s", "cansend", adapter_name, frame_id, dbuf);
                 c = system(buf);
                 if (c != 0) {
-                    snprintf(buf, sizeof buf, 
-                        "failed to send data via can, used command: %s %s %02x#%s", 
-                        "cansend", adapter_name, frame_id, dbuf);
-                    sys_logger(LOG_ERR, buf);
+                    sys_logger(LOG_ERR, "failed to send data via can");
                 }
             }
         }
     }
 }
 
+void remove_from_recv_stack(char **array, int index, int array_length) {
+    int i;
+    for (i = index; i < array_length - 1; i++) {
+        array[i] = array[i + 1];
+    }
+}
 
 int send_data_frame(const unsigned char *data, const int data_length, const CANUSB_FRAME_TYPE type, const int id) {
     unsigned char *frame;
@@ -404,32 +396,6 @@ int send_data_frame(const unsigned char *data, const int data_length, const CANU
     return frame_send(frame, frame_size);
 }
 
-int message_is_self_send(struct can_frame frame_rd){
-    // check recv stack if this message is from serial bus.
-    int i, j;
-    pthread_mutex_lock(&recvStackMutex);
-    int equal = rcvActvStckElmnt > 0;
-    for (i = 0; i < rcvActvStckElmnt; i++) {
-        equal &= frame_rd.can_id == recvStack[i].can_id;
-        equal &= frame_rd.can_dlc == recvStack[i].can_dlc;
-        // only compare data if id and dlc does match
-        if (equal){
-            for (j = 0; j < frame_rd.can_dlc; j++) {
-                equal &= frame_rd.data[j] == recvStack[i].data[j];
-            }
-        }
-        
-        // all things match. this is a frame we send to the adapter
-        if (equal) {
-            empty_recv_stack_element(i);
-             pthread_mutex_unlock(&recvStackMutex);
-            sys_logger(LOG_DEBUG, "Not sending message which has been received.");
-            return 1;
-        }
-    }
-    return 0;
-}
-
 
 /*
     Copy data from the bus to the serial adapter
@@ -467,7 +433,24 @@ void *can_to_serial_adapter(void *arg) {
             continue;
         }
 
-        if (message_is_self_send(frame_rd)){
+        // check recv stack if this message is from serial bus.
+        pthread_mutex_lock(&recvStackMutex);
+        int equal = recvStackElements > 0;
+        for (i = 0; i < recvStackElements; i++) {
+            for (j = 0; j < frame_rd.can_dlc; j++) {
+                equal &= frame_rd.data[j] == recvStack[i][j];
+            }
+
+            if (equal) {
+                remove_from_recv_stack((char **) recvStack, i, RECV_STACK_SIZE);
+                recvStackElements--;
+                break;
+            }
+        }
+
+        pthread_mutex_unlock(&recvStackMutex);
+        if (equal){
+            sys_logger(LOG_DEBUG, "Not sending message which has been received.");
             continue;
         }
 

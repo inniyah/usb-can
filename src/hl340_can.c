@@ -59,7 +59,7 @@
 #include <linux/can.h>
 #include <linux/can/skb.h>
 
-MODULE_ALIAS_LDISC(N_SLCAN);
+MODULE_ALIAS_LDISC(N_HLCAN);
 MODULE_DESCRIPTION("hl340 CAN interface");
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Alexander Mohr <usbcan@mohr.io>");
@@ -93,6 +93,9 @@ MODULE_PARM_DESC(maxdev, "Maximum number of slcan interfaces");
 
 #define HLCAN_PACKET_START 0xAA
 #define HLCAN_PACKET_END 0x55
+
+#define HLCAN_CONFIG_PACKAGE 0x55
+#define HLCAN_DATA_PACKAGE 0xC0
 
 typedef enum {
     RECEIVING,
@@ -252,13 +255,13 @@ FRAME_STATE get_frame_state(struct slcan *sl) {
         return RECEIVING;
     }
 
-    if (sl->rbuff[1] == 0x55) { /* Command frame... */
+    if (sl->rbuff[1] == HLCAN_CONFIG_PACKAGE) { /* Command frame... */
         if (sl->rcount >= 20) { /* ...always 20 bytes. */
             return COMPLETE;
         } else {
             return RECEIVING;
         }
-    } else if ((sl->rbuff[1] >> 4) == 0xC0) { /* Data frame... */
+    } else if ((sl->rbuff[1] >> 4) == HLCAN_DATA_PACKAGE) { /* Data frame... */
 		unsigned char expected_size = 
 			sizeof(HLCAN_PACKET_START) +
 			1 + // type byte
@@ -292,13 +295,17 @@ static void slcan_unesc(struct slcan *sl, unsigned char s)
 	sl->rbuff[sl->rcount++] = s;
 	switch(get_frame_state(sl)){
 		case COMPLETE:
-			slc_bump(sl);
+			if (sl->rbuff[1] == HLCAN_DATA_PACKAGE) {
+				slc_bump(sl);
+			}
 			/* fall through */
 		case MISSED_HEADER:
 			sl->rcount = 0;
 			break;
 		default: break;
 	}
+
+
 }
 
  /************************************************************************
@@ -740,7 +747,7 @@ static int slcan_ioctl(struct tty_struct *tty, struct file *file,
 static struct tty_ldisc_ops slc_ldisc = {
 	.owner		= THIS_MODULE,
 	.magic		= TTY_LDISC_MAGIC,
-	.name		= "slcan",
+	.name		= "hlcan",
 	.open		= slcan_open,
 	.close		= slcan_close,
 	.hangup		= slcan_hangup,

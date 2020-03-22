@@ -1,0 +1,31 @@
+menu "CAN Device Drivers"
+
+config CAN_HL340
+	tristate "HL340 Serial / USB serial CAN Adaptors (hl340)"
+	depends on TTY
+	---help---
+	  CAN driver for several 'low cost' CAN interfaces that are attached
+	  via serial lines or via USB-to-serial adapters using the LAWICEL
+	  ASCII protocol. The driver implements the tty linediscipline N_SLCAN.
+
+	  As only the sending and receiving of CAN frames is implemented, this
+	  driver should work with the (serial/USB) CAN hardware from:
+	  www.canusb.com / www.can232.com / www.mictronics.de / www.canhack.de
+
+	  Userspace tools to attach the SLCAN line discipline (slcan_attach,
+	  slcand) can be found in the can-utils at the SocketCAN SVN, see
+	  http://developer.berlios.de/projects/socketcan for details.
+
+	  The slcan driver supports up to 10 CAN netdevices by default which
+	  can be changed by the 'maxdev=xx' module option. This driver can
+	  also be built as a module. If so, the module will be called slcan.
+
+config CAN_DEBUG_DEVICES
+	bool "CAN devices debugging messages"
+	---help---
+	  Say Y here if you want the CAN device drivers to produce a bunch of
+	  debug messages to the system log.  Select this if you are having
+	  a problem with CAN support and want to see more of what is going
+	  on.
+
+endmenu

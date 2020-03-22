@@ -1,6 +1,7 @@
 [![Build Status](https://travis-ci.org/alexmohr/usb-can.svg?branch=master)](https://travis-ci.com/alexmohr/usb-can)
 # USB-CAN Analyzer Linux Support
-This is a hard fork of https://github.com/kobolt/usb-can.
+This repository implements a kernel module which adds support for QinHeng Electronics HL-340 USB-Serial adapter
+It is based on the works https://github.com/kobolt/usb-can and the linux slcan driver.
 
 It supports adapters like the one below.
 
@@ -21,8 +22,6 @@ And the whole thing is actually a USB to serial converter, for which Linux will 
 
 ## Requirements
 * can-utils
-* ip tools
-* cmake
 
 ## Install
 ````

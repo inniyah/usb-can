@@ -2,6 +2,7 @@
  * hl340.c - CAN driver interface for 
  *
  * This file is derived from linux/drivers/net/can/slcan.c
+ * where possible code from slcan.c has not been changed
  *
  * slip.c Authors  : Laurence Culhane <loz@holmes.demon.co.uk>
  *                   Fred N. van Kempen <waltje@uwalt.nl.mugnet.org>
@@ -76,7 +77,7 @@ MODULE_PARM_DESC(maxdev, "Maximum number of slcan interfaces");
 #define SLC_SFF_ID_LEN 3
 #define SLC_EFF_ID_LEN 8
 
-#define SLCAN_MAGIC 0x53CA
+#define HLCAN_MAGIC 0x53DA
 
 #define HLCAN_FRAME_PREFIX 0xC0
 #define HLCAN_FRAME_TYPE_STD 0x00
@@ -315,7 +316,7 @@ static void slcan_transmit(struct work_struct *work)
 
 	spin_lock_bh(&sl->lock);
 	/* First make sure we're connected. */
-	if (!sl->tty || sl->magic != SLCAN_MAGIC || !netif_running(sl->dev)) {
+	if (!sl->tty || sl->magic != HLCAN_MAGIC || !netif_running(sl->dev)) {
 		spin_unlock_bh(&sl->lock);
 		return;
 	}
@@ -467,7 +468,7 @@ static void slcan_receive_buf(struct tty_struct *tty,
 {
 	struct slcan *sl = (struct slcan *) tty->disc_data;
 
-	if (!sl || sl->magic != SLCAN_MAGIC || !netif_running(sl->dev))
+	if (!sl || sl->magic != HLCAN_MAGIC || !netif_running(sl->dev))
 		return;
 
 	/* Read the characters out of the buffer */
@@ -534,7 +535,7 @@ static struct slcan *slc_alloc(void)
 	sl = netdev_priv(dev);
 
 	/* Initialize channel control data */
-	sl->magic = SLCAN_MAGIC;
+	sl->magic = HLCAN_MAGIC;
 	sl->dev	= dev;
 	spin_lock_init(&sl->lock);
 	INIT_WORK(&sl->tx_work, slcan_transmit);
@@ -577,7 +578,7 @@ static int slcan_open(struct tty_struct *tty)
 
 	err = -EEXIST;
 	/* First make sure we're not already connected. */
-	if (sl && sl->magic == SLCAN_MAGIC)
+	if (sl && sl->magic == HLCAN_MAGIC)
 		goto err_exit;
 
 	/* OK.  Find a free SLCAN channel to use. */
@@ -633,7 +634,7 @@ static void slcan_close(struct tty_struct *tty)
 	struct slcan *sl = (struct slcan *) tty->disc_data;
 
 	/* First make sure we're connected. */
-	if (!sl || sl->magic != SLCAN_MAGIC || sl->tty != tty)
+	if (!sl || sl->magic != HLCAN_MAGIC || sl->tty != tty)
 		return;
 
 	spin_lock_bh(&sl->lock);
@@ -662,7 +663,7 @@ static int slcan_ioctl(struct tty_struct *tty, struct file *file,
 	unsigned int tmp;
 
 	/* First make sure we're connected. */
-	if (!sl || sl->magic != SLCAN_MAGIC)
+	if (!sl || sl->magic != HLCAN_MAGIC)
 		return -EINVAL;
 
 	switch (cmd) {
@@ -699,8 +700,8 @@ static int __init slcan_init(void)
 	if (maxdev < 4)
 		maxdev = 4; /* Sanity */
 
-	pr_info("slcan: serial line CAN interface driver\n");
-	pr_info("slcan: %d dynamic interface channels.\n", maxdev);
+	pr_info("hlcan: QinHeng serial line CAN interface driver\n");
+	pr_info("hlcan: %d dynamic interface channels.\n", maxdev);
 
 	slcan_devs = kcalloc(maxdev, sizeof(struct net_device *), GFP_KERNEL);
 	if (!slcan_devs)
@@ -709,7 +710,7 @@ static int __init slcan_init(void)
 	/* Fill in our line protocol discipline, and register it */
 	status = tty_register_ldisc(N_SLCAN, &slc_ldisc);
 	if (status)  {
-		printk(KERN_ERR "slcan: can't register line discipline\n");
+		printk(KERN_ERR "hlcan: can't register line discipline\n");
 		kfree(slcan_devs);
 	}
 	return status;

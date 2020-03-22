@@ -94,6 +94,13 @@ MODULE_PARM_DESC(maxdev, "Maximum number of slcan interfaces");
 #define HLCAN_PACKET_START 0xAA
 #define HLCAN_PACKET_END 0x55
 
+typedef enum {
+    RECEIVING,
+    COMPLETE,
+    MISSED_HEADER
+} FRAME_STATE;
+
+
 /* maximum rx buffer len: 20 should be enough as config command is largest cmd*/
 #define SLC_MTU (128)
 
@@ -109,6 +116,7 @@ struct slcan {
 	/* These are pointers to the malloc()ed frame buffers. */
 	unsigned char		rbuff[SLC_MTU];	/* receiver buffer	     */
 	int			        rcount;         /* received chars counter    */
+	int					rstate; 		/* state of current receive  */
 	unsigned char		xbuff[SLC_MTU];	/* transmitter buffer	     */
 	unsigned char		*xhead;         /* pointer to next XMIT byte */
 	int			        xleft;          /* bytes left in XMIT queue  */
@@ -124,8 +132,16 @@ static struct net_device **slcan_devs;
 /* 
 * Protocol handling
 */
-#define GET_FRAME_ID(frame, is_extended)({ \
-	 is_extended 				   \
+#define IS_EXT_ID(type)({ \
+		(type & 0xf0) == (HCLAN_EXT_REMOTE_FRAME) || \
+		(type & 0xf0) == HLCAN_EXT_DATA_FRAME; })
+
+#define IS_REMOTE(type) ({ \
+		(type & 0xf0) == HCLAN_EXT_REMOTE_FRAME || \
+		(type & 0xf0) == HCLAN_STD_REMOTE_FRAME; })
+	
+#define GET_FRAME_ID(frame)({ 	   \
+	 IS_EXT_ID(frame[1]) 		   \
 		?	(frame[5] << 24) 	 | \
 			(frame[4] << 16) | 	   \
 			(frame[3] << 8)  | 	   \
@@ -134,6 +150,7 @@ static struct net_device **slcan_devs;
 			frame[2]); 			   \
 })
 
+#define GET_DLC(type) ({type & 0x0f;})
 
 
 
@@ -178,19 +195,18 @@ static void slc_bump(struct slcan *sl)
 	struct can_frame cf;
 	unsigned char data_start = 4;
 	// idx 0 = packet header
-	char *cmd = sl->rbuff + 1;
-	// clear lower 4 bits to get only settings without length
-	unsigned char cmd_id = *cmd & 0xf0;
+	unsigned char *cmd = sl->rbuff + 1;
 	
-	cf.can_dlc = *cmd & 0x0f;
-	cf.can_id = GET_FRAME_ID(sl->rbuff, 
-		cmd_id == (HCLAN_EXT_REMOTE_FRAME) ||
-		cmd_id == HLCAN_EXT_DATA_FRAME);
+	cf.can_dlc = GET_DLC(*cmd);
+	cf.can_id = GET_FRAME_ID(cmd);
 
-	if (cmd_id == HCLAN_EXT_REMOTE_FRAME || 
-		cmd_id == HCLAN_STD_REMOTE_FRAME){
+	if (IS_REMOTE(*cmd)){
 		cf.can_id |= CAN_RTR_FLAG;
 		data_start = 6;
+	}
+
+	if (IS_EXT_ID(*cmd)) {
+		cf.can_id |= CAN_EFF_FLAG;
 	}
 
 	*(u64 *) (&cf.data) = 0; /* clear payload */
@@ -198,7 +214,7 @@ static void slc_bump(struct slcan *sl)
 	/* RTR frames may have a dlc > 0 but they never have any data bytes */
 	if (!(cf.can_id & CAN_RTR_FLAG)) {
 		memcpy(cf.data, 
-			sl->rbuff + data_start,
+			cmd + data_start,
 			cf.can_dlc);
 	}
 
@@ -223,25 +239,65 @@ static void slc_bump(struct slcan *sl)
 	netif_rx_ni(skb);
 }
 
+/* get the state of the current receive transmission */
+FRAME_STATE get_frame_state(struct slcan *sl) {
+    if (sl->rcount > 0) {
+        if (sl->rbuff[0] != HLCAN_PACKET_START) {
+            /* Need to sync on 0xaa at start of frames, so just skip. */
+            return MISSED_HEADER;
+        }
+    }
+
+    if (sl->rcount < 2) {
+        return RECEIVING;
+    }
+
+    if (sl->rbuff[1] == 0x55) { /* Command frame... */
+        if (sl->rcount >= 20) { /* ...always 20 bytes. */
+            return COMPLETE;
+        } else {
+            return RECEIVING;
+        }
+    } else if ((sl->rbuff[1] >> 4) == 0xC0) { /* Data frame... */
+		unsigned char expected_size = 
+			sizeof(HLCAN_PACKET_START) +
+			1 + // type byte
+			IS_EXT_ID(sl->rbuff[1]) ? 4 : 2 +
+			GET_DLC(sl->rbuff[1]) +
+			sizeof(HLCAN_PACKET_END);
+		if (sl->rcount >= expected_size){
+			return COMPLETE;
+		} else {
+			return RECEIVING;
+		}
+    }
+
+    /* Unhandled frame type. */
+    return COMPLETE;
+}
+
 /* parse tty input stream */
 static void slcan_unesc(struct slcan *sl, unsigned char s)
 {
-	if ((s == '\r') || (s == '\a')) { /* CR or BEL ends the pdu */
-			if (!test_and_clear_bit(SLF_ERROR, &sl->flags) &&
-		    (sl->rcount > 4))  {
+	if (test_and_clear_bit(SLF_ERROR, &sl->flags))  {
+		return;
+	}
+
+	if (sl->rcount > SLC_MTU)  {
+		sl->dev->stats.rx_over_errors++;
+		set_bit(SLF_ERROR, &sl->flags);
+		return;
+	} 
+
+	sl->rbuff[sl->rcount++] = s;
+	switch(get_frame_state(sl)){
+		case COMPLETE:
 			slc_bump(sl);
-		}
-		sl->rcount = 0;
-	} else {
-		if (!test_bit(SLF_ERROR, &sl->flags))  {
-			if (sl->rcount < SLC_MTU)  {
-				sl->rbuff[sl->rcount++] = s;
-				return;
-			} else {
-				sl->dev->stats.rx_over_errors++;
-				set_bit(SLF_ERROR, &sl->flags);
-			}
-		}
+			/* fall through */
+		case MISSED_HEADER:
+			sl->rcount = 0;
+			break;
+		default: break;
 	}
 }
 

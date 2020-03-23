@@ -75,29 +75,29 @@ module_param(maxdev, int, 0);
 MODULE_PARM_DESC(maxdev, "Maximum number of slcan interfaces");
 
 
-#define SLC_CMD_LEN 1
-#define SLC_SFF_ID_LEN 3
-#define SLC_EFF_ID_LEN 8
+#define SLC_CMD_LEN 	1
+#define SLC_SFF_ID_LEN 	3
+#define SLC_EFF_ID_LEN 	8
 
 #define HLCAN_MAGIC 0x53DA
 
-#define HLCAN_FRAME_PREFIX 0xC0
-#define HLCAN_FRAME_TYPE_STD 0x00
-#define HLCAN_FRAME_TYPE_EXT 0x01
+#define HLCAN_FRAME_PREFIX 	0xC0
+#define HCLAN_FLAG_STD_RTR 	0x10
+#define HLCAN_FLAG_ID_EXT 	0x20
+#define HLCAN_FLAG_EXT_RTR  0x30
+#define HLCAN_TYPE_MASK		0xF0
 
-#define HLCAN_FRAME_FORMAT_DATA 0x00
-#define HLCAN_FRAME_FORMAT_REMOTE 0x01
+#define HLCAN_STD_DATA_FRAME 	0xC0
+#define HLCAN_EXT_DATA_FRAME 	0xE0
+#define HCLAN_STD_REMOTE_FRAME 	0xD0
+#define HCLAN_EXT_REMOTE_FRAME 	0xF0
 
-#define HLCAN_STD_DATA_FRAME 0xC0
-#define HLCAN_EXT_DATA_FRAME 0xE0
-#define HCLAN_STD_REMOTE_FRAME 0xD0
-#define HCLAN_EXT_REMOTE_FRAME 0xF0
+#define HLCAN_PACKET_START 		0xAA
+#define HLCAN_PACKET_END		0x55
 
-#define HLCAN_PACKET_START 0xAA
-#define HLCAN_PACKET_END 0x55
-
-#define HLCAN_CONFIG_PACKAGE 0x55
-#define HLCAN_DATA_PACKAGE 0xC0
+#define HLCAN_CFG_PACKAGE_TYPE	0x55
+#define HLCAN_CFG_PACKAGE_LEN	0x14
+#define HLCAN_CFG_CRC_IDX		0x02
 
 typedef enum {
     RECEIVING,
@@ -138,13 +138,18 @@ static struct net_device **slcan_devs;
 * Protocol handling
 */
 #define IS_EXT_ID(type)({ \
-		(type & 0xf0) == (HCLAN_EXT_REMOTE_FRAME) || \
-		(type & 0xf0) == HLCAN_EXT_DATA_FRAME; })
+		(type & HLCAN_TYPE_MASK) == (HCLAN_EXT_REMOTE_FRAME) || \
+		(type & HLCAN_TYPE_MASK) == HLCAN_EXT_DATA_FRAME; })
 
 #define IS_REMOTE(type) ({ \
-		(type & 0xf0) == HCLAN_EXT_REMOTE_FRAME || \
-		(type & 0xf0) == HCLAN_STD_REMOTE_FRAME; })
-	
+		(type & HLCAN_TYPE_MASK) == HCLAN_EXT_REMOTE_FRAME || \
+		(type & HLCAN_TYPE_MASK) == HCLAN_STD_REMOTE_FRAME; })
+
+/* checks if bit 7 and 6 is set */
+#define IS_DATA_PACKAGE(type)({ \
+		((type >> 6) ^ 3) == 0;})
+
+
 #define GET_FRAME_ID(frame)({ 	   \
 	 IS_EXT_ID(frame[1]) 		   \
 		?	(frame[5] << 24) 	 | \
@@ -199,7 +204,7 @@ static void slc_bump(struct slcan *sl)
 	struct sk_buff *skb;
 	struct can_frame cf;
 	unsigned char data_start = 4;
-	// idx 0 = packet header
+	/* idx 0 = packet header */
 	unsigned char *cmd = sl->rbuff + 1;
 	
 	cf.can_dlc = GET_DLC(*cmd);
@@ -244,8 +249,30 @@ static void slc_bump(struct slcan *sl)
 	netif_rx_ni(skb);
 }
 
+static unsigned char generate_cfg_checksum(const struct slcan *sl){
+	unsigned char i, checksum;
+
+    checksum = 0;
+    for (i = HLCAN_CFG_CRC_IDX;
+		 i < HLCAN_CFG_PACKAGE_LEN - HLCAN_CFG_CRC_IDX - 1;
+		 ++i) {
+        checksum += *(sl->rbuff + i);
+    }
+
+    return checksum & 0xff;
+}
+
+/* Compare checksum for command frames and print kernel warning */
+static void validate_cfg_checksum(const struct slcan *sl) {
+	unsigned char checksum = generate_cfg_checksum(sl);
+	if (checksum != *(sl->rbuff + HLCAN_CFG_PACKAGE_LEN - 1)) {
+		printk(KERN_WARNING "Invalid checksum for command frame received");
+	}
+}
+
 /* get the state of the current receive transmission */
-FRAME_STATE get_frame_state(struct slcan *sl) {
+static FRAME_STATE get_frame_state(struct slcan *sl, unsigned char* size) {
+	*size = sl->rcount;
     if (sl->rcount > 0) {
         if (sl->rbuff[0] != HLCAN_PACKET_START) {
             /* Need to sync on 0xaa at start of frames, so just skip. */
@@ -257,13 +284,15 @@ FRAME_STATE get_frame_state(struct slcan *sl) {
         return RECEIVING;
     }
 
-    if (sl->rbuff[1] == HLCAN_CONFIG_PACKAGE) { /* Command frame... */
-        if (sl->rcount >= 20) { /* ...always 20 bytes. */
-            return COMPLETE;
+    if (sl->rbuff[1] == HLCAN_CFG_PACKAGE_TYPE) { 
+        if (sl->rcount >= HLCAN_CFG_PACKAGE_LEN) { 
+            validate_cfg_checksum(sl);
+			*size = HLCAN_CFG_PACKAGE_LEN;
+			return COMPLETE;
         } else {
             return RECEIVING;
         }
-    } else if ((sl->rbuff[1] >> 4) == HLCAN_DATA_PACKAGE) { /* Data frame... */
+    } else if (IS_DATA_PACKAGE(sl->rbuff[1])) { /* Data frame... */
 		unsigned char expected_size = 
 			sizeof(HLCAN_PACKET_START) +
 			1 + // type byte
@@ -271,6 +300,7 @@ FRAME_STATE get_frame_state(struct slcan *sl) {
 			GET_DLC(sl->rbuff[1]) +
 			sizeof(HLCAN_PACKET_END);
 		if (sl->rcount >= expected_size){
+			*size = expected_size;
 			return COMPLETE;
 		} else {
 			return RECEIVING;
@@ -282,32 +312,30 @@ FRAME_STATE get_frame_state(struct slcan *sl) {
 }
 
 /* parse tty input stream */
-static void slcan_unesc(struct slcan *sl, unsigned char s)
-{
-	if (test_and_clear_bit(SLF_ERROR, &sl->flags))  {
+static void slcan_unesc(struct slcan *sl, unsigned char s) {
+	unsigned char size = 0;
+	if (test_and_clear_bit(SLF_ERROR, &sl->flags)) {
 		return;
 	}
 
-	if (sl->rcount > SLC_MTU)  {
+	if (sl->rcount > SLC_MTU) {
 		sl->dev->stats.rx_over_errors++;
 		set_bit(SLF_ERROR, &sl->flags);
 		return;
 	} 
 
 	sl->rbuff[sl->rcount++] = s;
-	switch(get_frame_state(sl)){
+	switch(get_frame_state(sl, &size)){
 		case COMPLETE:
-			if (sl->rbuff[1] == HLCAN_DATA_PACKAGE) {
+			if (IS_DATA_PACKAGE(sl->rbuff[1])) {
 				slc_bump(sl);
 			}
 			/* fall through */
 		case MISSED_HEADER:
-			sl->rcount = 0;
+			sl->rcount -= size;
 			break;
 		default: break;
 	}
-
-
 }
 
  /************************************************************************

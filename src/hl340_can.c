@@ -59,11 +59,13 @@
 #include <linux/can.h>
 #include <linux/can/skb.h>
 
+#define DRV_NAME "hlcan"
+
 MODULE_ALIAS_LDISC(N_HLCAN);
 MODULE_DESCRIPTION("hl340 CAN interface");
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Alexander Mohr <usbcan@mohr.io>");
-
+MODULE_ALIAS_RTNL_LINK(DRV_NAME);
 
 
 static int maxdev = 10;		/* MAX number of SLCAN channels;
@@ -110,6 +112,7 @@ typedef enum {
 
 
 struct slcan {
+	struct can_priv can; /* must be the first member */
 	int magic;
 	struct tty_struct	*tty;		/* ptr to TTY structure	     */
 	struct net_device	*dev;		/* easy for intr handling    */
@@ -471,6 +474,7 @@ static int slc_open(struct net_device *dev)
 		return -ENODEV;
 
 	sl->flags &= (1 << SLF_INUSE);
+	//sl->dev = dev;
 	netif_start_queue(dev);
 	return 0;
 }
@@ -485,7 +489,7 @@ static void slc_free_netdev(struct net_device *dev)
 
 static int slcan_change_mtu(struct net_device *dev, int new_mtu)
 {
-	return -EINVAL;
+	return 0;
 }
 
 static const struct net_device_ops slc_netdev_ops = {
@@ -512,6 +516,11 @@ static void slc_setup(struct net_device *dev)
 	dev->flags		= IFF_NOARP;
 	dev->features           = NETIF_F_HW_CSUM;
 }
+
+static struct rtnl_link_ops hlcan_link_ops __read_mostly = {
+	.kind	= DRV_NAME,
+	.setup	= slc_setup,
+};
 
 /******************************************
   Routines looking at TTY side.
@@ -744,6 +753,7 @@ static int slcan_ioctl(struct tty_struct *tty, struct file *file,
 	}
 }
 
+// todo remove this
 static struct tty_ldisc_ops slc_ldisc = {
 	.owner		= THIS_MODULE,
 	.magic		= TTY_LDISC_MAGIC,
@@ -776,7 +786,14 @@ static int __init slcan_init(void)
 		printk(KERN_ERR "hlcan: can't register line discipline\n");
 		kfree(slcan_devs);
 	}
-	return status;
+
+priv->can.bittiming_const = &esd_usb2_bittiming_const;
+	priv->can.do_set_bittiming = esd_usb2_set_bittiming;
+	priv->can.do_set_mode = esd_usb2_set_mode;
+	priv->can.do_get_berr_counter = esd_usb2_get_berr_counter;
+
+
+	return rtnl_link_register(&hlcan_link_ops);
 }
 
 static void __exit slcan_exit(void)

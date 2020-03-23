@@ -42,8 +42,10 @@
 #include <linux/serial.h>
 #include <stdarg.h>
 
+#include "module/hl340_can.h"
+
 /* Change this to whatever your daemon is called */
-#define DAEMON_NAME "slcand"
+#define DAEMON_NAME "hlcand"
 
 /* Change this to the user under which to run */
 #define RUN_AS_USER "root"
@@ -198,7 +200,7 @@ int main(int argc, char *argv[])
 	char *btr = NULL;
 	int run_as_daemon = 1;
 	char *pch;
-	int ldisc = N_SLCAN;
+	int ldisc = N_HLCAN;
 	int fd;
 
 	ttypath[0] = '\0';

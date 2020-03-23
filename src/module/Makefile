@@ -2,7 +2,7 @@
 #
 #  Makefile for the Linux Controller Area Network drivers.
 #
-obj-m+=hl340_can.o
+obj-m+=hlcan.o
  
 all:
 	make -C /lib/modules/$(shell uname -r)/build/ M=$(PWD) modules

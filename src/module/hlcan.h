@@ -1,0 +1,1 @@
+#define N_HLCAN		31	/* line discipline for hlcan, value not used in kernel */

@@ -59,13 +59,13 @@
 #include <linux/can.h>
 #include <linux/can/skb.h>
 
-#define DRV_NAME "hlcan"
+#include "hlcan.h"
+
 
 MODULE_ALIAS_LDISC(N_HLCAN);
 MODULE_DESCRIPTION("hl340 CAN interface");
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("Alexander Mohr <usbcan@mohr.io>");
-MODULE_ALIAS_RTNL_LINK(DRV_NAME);
+MODULE_AUTHOR("Alexander Mohr <hlcan@mohr.io>");
 
 
 static int maxdev = 10;		/* MAX number of SLCAN channels;
@@ -515,11 +515,6 @@ static void slc_setup(struct net_device *dev)
 	dev->features           = NETIF_F_HW_CSUM;
 }
 
-static struct rtnl_link_ops hlcan_link_ops __read_mostly = {
-	.kind	= DRV_NAME,
-	.setup	= slc_setup,
-};
-
 /******************************************
   Routines looking at TTY side.
  ******************************************/
@@ -596,7 +591,7 @@ static struct slcan *slc_alloc(void)
 	if (i >= maxdev)
 		return NULL;
 
-	sprintf(name, "slcan%d", i);
+	sprintf(name, "hlcan%d", i);
 	dev = alloc_netdev(sizeof(*sl), name, NET_NAME_UNKNOWN, slc_setup);
 	if (!dev)
 		return NULL;
@@ -779,12 +774,12 @@ static int __init slcan_init(void)
 		return -ENOMEM;
 
 	/* Fill in our line protocol discipline, and register it */
-	status = tty_register_ldisc(N_SLCAN, &slc_ldisc);
+	status = tty_register_ldisc(N_HLCAN, &slc_ldisc);
 	if (status)  {
 		printk(KERN_ERR "hlcan: can't register line discipline\n");
 		kfree(slcan_devs);
 	}
-	return rtnl_link_register(&hlcan_link_ops);
+	return status;
 }
 
 static void __exit slcan_exit(void)
@@ -840,7 +835,7 @@ static void __exit slcan_exit(void)
 	kfree(slcan_devs);
 	slcan_devs = NULL;
 
-	i = tty_unregister_ldisc(N_SLCAN);
+	i = tty_unregister_ldisc(N_HLCAN);
 	if (i)
 		printk(KERN_ERR "slcan: can't unregister ldisc (err %d)\n", i);
 }

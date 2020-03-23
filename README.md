@@ -25,18 +25,26 @@ And the whole thing is actually a USB to serial converter, for which Linux will 
 
 ## Install
 ````
-mkdir build
-cd build
-cmake ../
 make
-
 # optional
-make install
+sudo make install
+
+# load module
+sudo insmod hl340_can.ko
 ````
 
 ## Usage
-Run as daemon
-````usbcan -s 500000 -d /dev/ttyUSB0````
+Create adapter 
+````
+sudo ip link add  dev hlcan0 type hlcan
+````
 
-Start with verbose logging and in foreground
-````usbcan -p -s 500000 -d /dev/ttyUSB0 -t -F ````
+Configure usb device 
+````
+sudo ip link set hlcan0 alias /dev/ttyUSB0
+````
+
+Configure can baudrate 
+````
+sudo ip link set hlcan0 type can bitrate 500000
+`````

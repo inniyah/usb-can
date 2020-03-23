@@ -2,7 +2,7 @@
  * hl340.c - CAN driver interface for 
  *
  * This file is derived from linux/drivers/net/can/slcan.c
- * where possible code from slcan.c has not been changed
+ *
  *
  * slip.c Authors  : Laurence Culhane <loz@holmes.demon.co.uk>
  *                   Fred N. van Kempen <waltje@uwalt.nl.mugnet.org>
@@ -112,7 +112,6 @@ typedef enum {
 
 
 struct slcan {
-	struct can_priv can; /* must be the first member */
 	int magic;
 	struct tty_struct	*tty;		/* ptr to TTY structure	     */
 	struct net_device	*dev;		/* easy for intr handling    */
@@ -474,7 +473,6 @@ static int slc_open(struct net_device *dev)
 		return -ENODEV;
 
 	sl->flags &= (1 << SLF_INUSE);
-	//sl->dev = dev;
 	netif_start_queue(dev);
 	return 0;
 }
@@ -786,13 +784,6 @@ static int __init slcan_init(void)
 		printk(KERN_ERR "hlcan: can't register line discipline\n");
 		kfree(slcan_devs);
 	}
-
-priv->can.bittiming_const = &esd_usb2_bittiming_const;
-	priv->can.do_set_bittiming = esd_usb2_set_bittiming;
-	priv->can.do_set_mode = esd_usb2_set_mode;
-	priv->can.do_get_berr_counter = esd_usb2_get_berr_counter;
-
-
 	return rtnl_link_register(&hlcan_link_ops);
 }
 

@@ -36,13 +36,13 @@
 #include <signal.h>
 #include <sys/ioctl.h>
 #include <net/if.h>
-#include <termios.h>
+#include <asm/termbits.h> /* struct termios2 */
 #include <linux/tty.h>
 #include <linux/sockios.h>
 #include <linux/serial.h>
 #include <stdarg.h>
 
-#include "module/hl340_can.h"
+#include "module/hlcan.h"
 
 /* Change this to whatever your daemon is called */
 #define DAEMON_NAME "hlcand"
@@ -57,6 +57,8 @@
 #define FLOW_NONE 0
 #define FLOW_HW 1
 #define FLOW_SW 2
+
+#define DEFAULT_UART_SPEED 2000000
 
 static void fake_syslog(int priority, const char *format, ...)
 {
@@ -75,20 +77,15 @@ static syslog_t syslogger = syslog;
 void print_usage(char *prg)
 {
 	fprintf(stderr, "\nUsage: %s [options] <tty> [canif-name]\n\n", prg);
-	fprintf(stderr, "Options: -o         (send open command 'O\\r')\n");
-	fprintf(stderr, "         -c         (send close command 'C\\r')\n");
-	fprintf(stderr, "         -f         (read status flags with 'F\\r' to reset error states)\n");
-	fprintf(stderr, "         -l         (send listen only command 'L\\r', overrides -o)\n");
-	fprintf(stderr, "         -s <speed> (set CAN speed 0..8)\n");
+	fprintf(stderr, "Options: -l         (set transciever to listen mode)\n");
+	fprintf(stderr, "         -s <speed> (set CAN speed in bits per second)\n");
 	fprintf(stderr, "         -S <speed> (set UART speed in baud)\n");
-	fprintf(stderr, "         -t <type>  (set UART flow control type 'hw' or 'sw')\n");
-	fprintf(stderr, "         -b <btr>   (set bit time register value)\n");
+	fprintf(stderr, "         -e         (set interface to extended id mode)\n");
 	fprintf(stderr, "         -F         (stay in foreground; no daemonize)\n");
+	fprintf(stderr, "         -m <mode>  (0: normal (default), 1: loopback, 2:silent, 3: loopback silent)\n");
 	fprintf(stderr, "         -h         (show this help page)\n");
 	fprintf(stderr, "\nExamples:\n");
-	fprintf(stderr, "slcand -o -c -f -s6 ttyUSB0\n");
-	fprintf(stderr, "slcand -o -c -f -s6 ttyUSB0 can0\n");
-	fprintf(stderr, "slcand -o -c -f -s6 /dev/ttyUSB0\n");
+	fprintf(stderr, "slcand -m 2 -s 500000 /dev/ttyUSB0\n");
 	fprintf(stderr, "\n");
 	exit(EXIT_FAILURE);
 }
@@ -120,61 +117,86 @@ static void child_handler(int signum)
 	}
 }
 
-static int look_up_uart_speed(long int s)
-{
-	switch (s) {
 
-	case 9600:
-		return B9600;
-	case 19200:
-		return B19200;
-	case 38400:
-		return B38400;
-	case 57600:
-		return B57600;
-	case 115200:
-		return B115200;
-	case 230400:
-		return B230400;
-	case 460800:
-		return B460800;
-	case 500000:
-		return B500000;
-	case 576000:
-		return B576000;
-	case 921600:
-		return B921600;
-	case 1000000:
-		return B1000000;
-	case 1152000:
-		return B1152000;
-	case 1500000:
-		return B1500000;
-	case 2000000:
-		return B2000000;
-#ifdef B2500000
-	case 2500000:
-		return B2500000;
-#endif
-#ifdef B3000000
-	case 3000000:
-		return B3000000;
-#endif
-#ifdef B3500000
-	case 3500000:
-		return B3500000;
-#endif
-#ifdef B3710000
-	case 3710000
-		return B3710000;
-#endif
-#ifdef B4000000
-	case 4000000:
-		return B4000000;
-#endif
-	default:
+static unsigned char hlcan_create_crc(unsigned char* data){
+	unsigned char i, checksum;
+
+    checksum = 0;
+    for (i = HLCAN_CFG_CRC_IDX;
+		 i < HLCAN_CFG_PACKAGE_LEN - HLCAN_CFG_CRC_IDX - 1;
+		 ++i) {
+        checksum += *(data + i);
+    }
+
+    return checksum & 0xff;
+}
+
+static int command_settings(HLCAN_SPEED speed, 
+	HLCAN_MODE mode, 
+	HLCAN_FRAME_TYPE frame,
+	int fd) {
+    int cmd_frame_len;
+    unsigned char cmd_frame[HLCAN_CFG_PACKAGE_LEN];
+
+    cmd_frame_len = 0;
+    cmd_frame[cmd_frame_len++] = HLCAN_PACKET_START;
+    cmd_frame[cmd_frame_len++] = HLCAN_CFG_PACKAGE_TYPE;
+    cmd_frame[cmd_frame_len++] = 0x12;
+    cmd_frame[cmd_frame_len++] = speed;
+    cmd_frame[cmd_frame_len++] = frame;
+    cmd_frame[cmd_frame_len++] = 0; /* Filter ID not handled. */
+    cmd_frame[cmd_frame_len++] = 0; /* Filter ID not handled. */
+    cmd_frame[cmd_frame_len++] = 0; /* Filter ID not handled. */
+    cmd_frame[cmd_frame_len++] = 0; /* Filter ID not handled. */
+    cmd_frame[cmd_frame_len++] = 0; /* Mask ID not handled. */
+    cmd_frame[cmd_frame_len++] = 0; /* Mask ID not handled. */
+    cmd_frame[cmd_frame_len++] = 0; /* Mask ID not handled. */
+    cmd_frame[cmd_frame_len++] = 0; /* Mask ID not handled. */
+    cmd_frame[cmd_frame_len++] = mode;
+    cmd_frame[cmd_frame_len++] = 0x01; // ?
+    cmd_frame[cmd_frame_len++] = 0;
+    cmd_frame[cmd_frame_len++] = 0;
+    cmd_frame[cmd_frame_len++] = 0;
+    cmd_frame[cmd_frame_len++] = 0;
+    cmd_frame[cmd_frame_len++] = hlcan_create_crc(cmd_frame);
+
+    if (write(fd, cmd_frame, HLCAN_CFG_PACKAGE_LEN) < 0) {
+        syslogger(LOG_ERR, "write() failed: %s", strerror(errno));
 		return -1;
-	}
+    }
+
+	return 0;
+}
+
+static HLCAN_SPEED HLCAN_int_to_speed(const int speed) {
+    switch (speed) {
+        case 1000000:
+            return HLCAN_SPEED_1000000;
+        case 800000:
+            return HLCAN_SPEED_800000;
+        case 500000:
+            return HLCAN_SPEED_500000;
+        case 400000:
+            return HLCAN_SPEED_400000;
+        case 250000:
+            return HLCAN_SPEED_250000;
+        case 200000:
+            return HLCAN_SPEED_200000;
+        case 125000:
+            return HLCAN_SPEED_125000;
+        case 100000:
+            return HLCAN_SPEED_100000;
+        case 50000:
+            return HLCAN_SPEED_50000;
+        case 20000:
+            return HLCAN_SPEED_20000;
+        case 10000:
+            return HLCAN_SPEED_10000;
+        case 5000:
+            return HLCAN_SPEED_5000;
+        default:
+            return HLCAN_SPEED_INVALID;
+    }
 }
 
 int main(int argc, char *argv[])
@@ -184,44 +206,40 @@ int main(int argc, char *argv[])
 	char *name = NULL;
 	char buf[20];
 	static struct ifreq ifr;
-	struct termios tios;
-	speed_t old_ispeed;
-	speed_t old_ospeed;
+	struct termios2 tios;
 
 	int opt;
-	int send_open = 0;
-	int send_close = 0;
-	int send_listen = 0;
-	int send_read_status_flags = 0;
-	char *speed = NULL;
 	char *uart_speed_str = NULL;
-	long int uart_speed = 0;
-	int flow_type = FLOW_NONE;
-	char *btr = NULL;
+	long int uart_speed = DEFAULT_UART_SPEED;
 	int run_as_daemon = 1;
 	char *pch;
 	int ldisc = N_HLCAN;
 	int fd;
+	HLCAN_MODE mode = HLCAN_MODE_NORMAL;
+	HLCAN_SPEED speed = HLCAN_SPEED_500000;
+	HLCAN_FRAME_TYPE type = HLCAN_FRAME_STANDARD;
 
 	ttypath[0] = '\0';
 
-	while ((opt = getopt(argc, argv, "ocfls:S:t:b:?hF")) != -1) {
+	while ((opt = getopt(argc, argv, "es:S:m:?hF")) != -1) {
 		switch (opt) {
-		case 'o':
-			send_open = 1;
+		case 'e':
+			type = HLCAN_FRAME_EXTENDED;
 			break;
-		case 'c':
-			send_close = 1;
-			break;
-		case 'f':
-			send_read_status_flags = 1;
-			break;
-		case 'l':
-			send_listen = 1;
+		case 'm':
+			errno = 0;
+			mode = atoi(optarg);
+			if (errno ||
+				mode > HLCAN_MODE_LOOPBACK_SILENT || mode < 0)
+				print_usage(argv[0]);
 			break;
 		case 's':
-			speed = optarg;
-			if (strlen(speed) > 1)
+			errno = 0;
+			speed = atoi(optarg);
+			if (errno)
+				print_usage(argv[0]);
+			speed = HLCAN_int_to_speed(speed);
+			if (speed == HLCAN_SPEED_INVALID)
 				print_usage(argv[0]);
 			break;
 		case 'S':
@@ -229,25 +247,6 @@ int main(int argc, char *argv[])
 			errno = 0;
 			uart_speed = strtol(uart_speed_str, NULL, 10);
 			if (errno)
-				print_usage(argv[0]);
-			if (look_up_uart_speed(uart_speed) == -1) {
-				fprintf(stderr, "Unsupported UART speed (%lu)\n", uart_speed);
-				exit(EXIT_FAILURE);
-			}
-			break;
-		case 't':
-			if (!strcmp(optarg, "hw")) {
-				flow_type = FLOW_HW;
-			} else if (!strcmp(optarg, "sw")) {
-				flow_type = FLOW_SW;
-			} else {
-				fprintf(stderr, "Unsupported flow type (%s)\n", optarg);
-				exit(EXIT_FAILURE);
-			}
-			break;
-		case 'b':
-			btr = optarg;
-			if (strlen(btr) > 6)
 				print_usage(argv[0]);
 			break;
 		case 'F':
@@ -292,82 +291,32 @@ int main(int argc, char *argv[])
 		exit(EXIT_FAILURE);
 	}
 
-	/* Configure baud rate */
-	memset(&tios, 0, sizeof(tios));
-	if (tcgetattr(fd, &tios) < 0) {
-		syslogger(LOG_NOTICE, "failed to get attributes for TTY device %s: %s\n", ttypath, strerror(errno));
-		exit(EXIT_FAILURE);
+    if (ioctl(fd, TCGETS2, &tios) < 0) {
+        syslogger(LOG_NOTICE, "ioctl() failed: %s\n", strerror(errno));
+        close(fd);
+       	exit(EXIT_FAILURE);
+    }
+
+    tios.c_cflag &= ~CBAUD;
+    tios.c_cflag = BOTHER | CS8 | CSTOPB;
+    tios.c_iflag = IGNPAR;
+    tios.c_oflag = 0;
+    tios.c_lflag = 0;
+    tios.c_ispeed = (speed_t) uart_speed;
+    tios.c_ospeed = (speed_t) uart_speed;
+
+    if (ioctl(fd, TCSETS2, &tios) < 0) {
+        syslogger(LOG_NOTICE, "ioctl() failed: %s\n", strerror(errno));
+        close(fd);
+        exit(EXIT_FAILURE);
+    }
+
+	if (command_settings(speed, mode, type, fd) < 0){
+		close(fd);
+        exit(EXIT_FAILURE);
 	}
 
-	// Because of a recent change in linux - https://patchwork.kernel.org/patch/9589541/
-	// we need to set low latency flag to get proper receive latency
-	struct serial_struct snew;
-	ioctl (fd, TIOCGSERIAL, &snew);
-	snew.flags |= ASYNC_LOW_LATENCY;
-	ioctl (fd, TIOCSSERIAL, &snew);
-
-	/* Get old values for later restore */
-	old_ispeed = cfgetispeed(&tios);
-	old_ospeed = cfgetospeed(&tios);
-
-	/* Reset UART settings */
-	cfmakeraw(&tios);
-	tios.c_iflag &= ~IXOFF;
-	tios.c_cflag &= ~CRTSCTS;
-
-	/* Baud Rate */
-	cfsetispeed(&tios, look_up_uart_speed(uart_speed));
-	cfsetospeed(&tios, look_up_uart_speed(uart_speed));
-
-	/* Flow control */
-	if (flow_type == FLOW_HW)
-		tios.c_cflag |= CRTSCTS;
-	else if (flow_type == FLOW_SW)
-		tios.c_iflag |= (IXON | IXOFF);
-
-	/* apply changes */
-	if (tcsetattr(fd, TCSADRAIN, &tios) < 0)
-		syslogger(LOG_NOTICE, "Cannot set attributes for device \"%s\": %s!\n", ttypath, strerror(errno));
-
-	if (speed) {
-		sprintf(buf, "C\rS%s\r", speed);
-		if (write(fd, buf, strlen(buf)) <= 0) {
-			perror("write");
-			exit(EXIT_FAILURE);
-		}
-	}
-
-	if (btr) {
-		sprintf(buf, "C\rs%s\r", btr);
-		if (write(fd, buf, strlen(buf)) <= 0) {
-			perror("write");
-			exit(EXIT_FAILURE);
-		}
-	}
-
-	if (send_read_status_flags) {
-		sprintf(buf, "F\r");
-		if (write(fd, buf, strlen(buf)) <= 0) {
-			perror("write");
-			exit(EXIT_FAILURE);
-		}
-	}
-
-	if (send_listen) {
-		sprintf(buf, "L\r");
-		if (write(fd, buf, strlen(buf)) <= 0) {
-			perror("write");
-			exit(EXIT_FAILURE);
-		}
-	} else if (send_open) {
-		sprintf(buf, "O\r");
-		if (write(fd, buf, strlen(buf)) <= 0) {
-			perror("write");
-			exit(EXIT_FAILURE);
-		}
-	}
-
-	/* set slcan like discipline on given tty */
+	/* set hlcan like discipline on given tty */
 	if (ioctl(fd, TIOCSETD, &ldisc) < 0) {
 		perror("ioctl TIOCSETD");
 		exit(EXIT_FAILURE);
@@ -429,22 +378,6 @@ int main(int argc, char *argv[])
 		perror("ioctl TIOCSETD");
 		exit(EXIT_FAILURE);
 	}
-
-	if (send_close) {
-		sprintf(buf, "C\r");
-		if (write(fd, buf, strlen(buf)) <= 0) {
-			perror("write");
-			exit(EXIT_FAILURE);
-		}
-	}
-
-	/* Reset old rates */
-	cfsetispeed(&tios, old_ispeed);
-	cfsetospeed(&tios, old_ospeed);
-
-	/* apply changes */
-	if (tcsetattr(fd, TCSADRAIN, &tios) < 0)
-		syslogger(LOG_NOTICE, "Cannot set attributes for device \"%s\": %s!\n", ttypath, strerror(errno));
 
 	/* Finish up */
 	syslogger(LOG_NOTICE, "terminated on %s", ttypath);

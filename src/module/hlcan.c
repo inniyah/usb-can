@@ -74,37 +74,6 @@ static int maxdev = 10;		/* MAX number of SLCAN channels;
 module_param(maxdev, int, 0);
 MODULE_PARM_DESC(maxdev, "Maximum number of slcan interfaces");
 
-// todo remove
-#define SLC_CMD_LEN 	1
-#define SLC_SFF_ID_LEN 	3
-#define SLC_EFF_ID_LEN 	8
-
-#define HLCAN_MAGIC 0x53DA
-
-#define HLCAN_FRAME_PREFIX 	0xC0
-#define HLCAN_FLAG_RTR	 	0x10
-#define HLCAN_FLAG_ID_EXT 	0x20
-#define HLCAN_TYPE_MASK		0xF0
-
-#define HLCAN_STD_DATA_FRAME 	0xC0
-#define HLCAN_EXT_DATA_FRAME 	0xE0
-#define HCLAN_STD_REMOTE_FRAME 	0xD0
-#define HCLAN_EXT_REMOTE_FRAME 	0xF0
-
-#define HLCAN_PACKET_START 		0xAA
-#define HLCAN_PACKET_END		0x55
-
-#define HLCAN_CFG_PACKAGE_TYPE	0x55
-#define HLCAN_CFG_PACKAGE_LEN	0x14
-#define HLCAN_CFG_CRC_IDX		0x02
-
-typedef enum {
-	NONE,
-    RECEIVING,
-    COMPLETE,
-    MISSED_HEADER
-} FRAME_STATE;
-
 
 /* maximum rx buffer len: 20 should be enough as config command is largest cmd*/
 #define SLC_MTU (128)
@@ -249,27 +218,6 @@ static void slc_bump(struct slcan *sl)
 	netif_rx_ni(skb);
 }
 
-static unsigned char hlcan_create_crc(const struct slcan *sl){
-	unsigned char i, checksum;
-
-    checksum = 0;
-    for (i = HLCAN_CFG_CRC_IDX;
-		 i < HLCAN_CFG_PACKAGE_LEN - HLCAN_CFG_CRC_IDX - 1;
-		 ++i) {
-        checksum += *(sl->rbuff + i);
-    }
-
-    return checksum & 0xff;
-}
-
-/* Compare checksum for command frames and print kernel warning */
-static void hlcan_check_crc(const struct slcan *sl) {
-	unsigned char checksum = hlcan_create_crc(sl);
-	if (checksum != *(sl->rbuff + HLCAN_CFG_PACKAGE_LEN - 1)) {
-		printk(KERN_WARNING "checksum validation failed\n");
-	}
-}
-
 /* get the state of the current receive transmission */
 static void hlcan_update_rstate(struct slcan *sl) {
     if (sl->rcount > 0) {
@@ -287,7 +235,7 @@ static void hlcan_update_rstate(struct slcan *sl) {
 
     if (sl->rbuff[1] == HLCAN_CFG_PACKAGE_TYPE) { 
         if (sl->rcount >= HLCAN_CFG_PACKAGE_LEN) { 
-            hlcan_check_crc(sl);
+			/* will be handled by userspace tool */
 			sl->rstate = COMPLETE;
         } else {
             sl->rstate = RECEIVING;

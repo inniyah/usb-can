@@ -35,7 +35,14 @@ Load the kernel module
 insmod hlcan.ko
 ````
 
-Create a new device 
+Start hlcand
 ````
-hlcand -o -c -f -s6 ttyUSB0
+# Listen only 
+slcand -m 2 -s 500000 /dev/ttyUSB0
+
+# Foreground
+slcand -F -s 500000 /dev/ttyUSB0
+
+# Extended Frames
+slcand -e -s 500000 /dev/ttyUSB0
 ````

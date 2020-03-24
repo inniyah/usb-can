@@ -74,7 +74,7 @@ static int maxdev = 10;		/* MAX number of SLCAN channels;
 module_param(maxdev, int, 0);
 MODULE_PARM_DESC(maxdev, "Maximum number of slcan interfaces");
 
-
+// todo remove
 #define SLC_CMD_LEN 	1
 #define SLC_SFF_ID_LEN 	3
 #define SLC_EFF_ID_LEN 	8
@@ -82,9 +82,8 @@ MODULE_PARM_DESC(maxdev, "Maximum number of slcan interfaces");
 #define HLCAN_MAGIC 0x53DA
 
 #define HLCAN_FRAME_PREFIX 	0xC0
-#define HCLAN_FLAG_STD_RTR 	0x10
+#define HLCAN_FLAG_RTR	 	0x10
 #define HLCAN_FLAG_ID_EXT 	0x20
-#define HLCAN_FLAG_EXT_RTR  0x30
 #define HLCAN_TYPE_MASK		0xF0
 
 #define HLCAN_STD_DATA_FRAME 	0xC0
@@ -150,7 +149,6 @@ static struct net_device **slcan_devs;
 /* checks if bit 7 and 6 is set */
 #define IS_DATA_PACKAGE(type)({ \
 		((type >> 6) ^ 3) == 0;})
-
 
 #define GET_FRAME_ID(frame)({ 	   \
 	 IS_EXT_ID(frame[1]) 		   \
@@ -327,7 +325,8 @@ static void slcan_unesc(struct slcan *sl, unsigned char s) {
 	
 	/* Only check state again after we received enough data */
 	if (RECEIVING == sl->rstate
-		&& sl->rcount < sl->rexpected){
+		&& sl->rexpected > 0
+		&& sl->rcount < sl->rexpected) {
 		return;
 	}
 	
@@ -337,6 +336,7 @@ static void slcan_unesc(struct slcan *sl, unsigned char s) {
 			if (IS_DATA_PACKAGE(sl->rbuff[1])) {
 				slc_bump(sl);
 			}
+			sl->rexpected = 0;
 			/* fall through */
 		case MISSED_HEADER:
 			sl->rcount = 0;
@@ -354,44 +354,39 @@ static void slc_encaps(struct slcan *sl, struct can_frame *cf)
 {
 	int actual, i;
 	unsigned char *pos;
-	unsigned char *endpos;
-	canid_t id = cf->can_id;
+	u32 id;
 
 	pos = sl->xbuff;
+	*pos++ = HLCAN_PACKET_START;
+	
+	*pos = HLCAN_FRAME_PREFIX;
+	*pos |= cf->can_dlc;
+	if (cf->can_id & CAN_RTR_FLAG) {
+		*pos &= HLCAN_FLAG_RTR;
+	} 
 
-	if (cf->can_id & CAN_RTR_FLAG)
-		*pos = 'R'; /* becomes 'r' in standard frame format (SFF) */
-	else
-		*pos = 'T'; /* becomes 't' in standard frame format (SSF) */
-
-	/* determine number of chars for the CAN-identifier */
+	/* setup the frame id id */
+	/* mask the upper 3 bits because they are used for flags */
+	id = cf->can_id & 0x1FFFFFFF;
 	if (cf->can_id & CAN_EFF_FLAG) {
-		id &= CAN_EFF_MASK;
-		endpos = pos + SLC_EFF_ID_LEN;
+		*pos++ &= HLCAN_FLAG_ID_EXT;
+		*pos++ = (unsigned char) (id & 0xFF);
+        *pos++ = (unsigned char) ((id >> 8) & 0xFF);
+        *pos++ = (unsigned char) ((id >> 16) & 0xFF);
+        *pos++ = (unsigned char) ((id >> 24) & 0xFF);
 	} else {
-		*pos |= 0x20; /* convert R/T to lower case for SFF */
-		id &= CAN_SFF_MASK;
-		endpos = pos + SLC_SFF_ID_LEN;
+ 		++pos;
+		*pos++ = (unsigned char) (id & 0xFF);
+        *pos++ = (unsigned char) ((id >> 8) & 0xFF);
 	}
-
-	/* build 3 (SFF) or 8 (EFF) digit CAN identifier */
-	pos++;
-	while (endpos >= pos) {
-		*endpos-- = hex_asc_upper[id & 0xf];
-		id >>= 4;
-	}
-
-	pos += (cf->can_id & CAN_EFF_FLAG) ? SLC_EFF_ID_LEN : SLC_SFF_ID_LEN;
-
-	*pos++ = cf->can_dlc + '0';
 
 	/* RTR frames may have a dlc > 0 but they never have any data bytes */
 	if (!(cf->can_id & CAN_RTR_FLAG)) {
 		for (i = 0; i < cf->can_dlc; i++)
-			pos = hex_byte_pack_upper(pos, cf->data[i]);
+			*pos++ = cf->data[i];
 	}
 
-	*pos++ = '\r';
+	*pos++ = HLCAN_PACKET_END;
 
 	/* Order of next two lines is *very* important.
 	 * When we are sending a little amount of data,

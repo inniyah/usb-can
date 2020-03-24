@@ -100,6 +100,7 @@ MODULE_PARM_DESC(maxdev, "Maximum number of slcan interfaces");
 #define HLCAN_CFG_CRC_IDX		0x02
 
 typedef enum {
+	NONE,
     RECEIVING,
     COMPLETE,
     MISSED_HEADER
@@ -119,9 +120,10 @@ struct slcan {
 	struct work_struct	tx_work;	/* Flushes transmit buffer   */
 
 	/* These are pointers to the malloc()ed frame buffers. */
-	unsigned char		rbuff[SLC_MTU];	/* receiver buffer	     */
+	unsigned char		rbuff[SLC_MTU];	/* receiver buffer	     	 */
 	int			        rcount;         /* received chars counter    */
-	int					rstate; 		/* state of current receive  */
+	int					rexpected;		/* expected chars counter 	 */
+	FRAME_STATE 		rstate; 		/* state of current receive  */
 	unsigned char		xbuff[SLC_MTU];	/* transmitter buffer	     */
 	unsigned char		*xhead;         /* pointer to next XMIT byte */
 	int			        xleft;          /* bytes left in XMIT queue  */
@@ -204,7 +206,7 @@ static void slc_bump(struct slcan *sl)
 	struct sk_buff *skb;
 	struct can_frame cf;
 	unsigned char data_start = 4;
-	/* idx 0 = packet header */
+	/* idx 0 = packet header, skip it */
 	unsigned char *cmd = sl->rbuff + 1;
 	
 	cf.can_dlc = GET_DLC(*cmd);
@@ -266,54 +268,53 @@ static unsigned char generate_cfg_checksum(const struct slcan *sl){
 static void validate_cfg_checksum(const struct slcan *sl) {
 	unsigned char checksum = generate_cfg_checksum(sl);
 	if (checksum != *(sl->rbuff + HLCAN_CFG_PACKAGE_LEN - 1)) {
-		printk(KERN_WARNING "Invalid checksum for command frame received");
+		printk(KERN_WARNING "checksum validation failed\n");
 	}
 }
 
 /* get the state of the current receive transmission */
-static FRAME_STATE get_frame_state(struct slcan *sl, unsigned char* size) {
-	*size = sl->rcount;
+static void get_frame_state(struct slcan *sl) {
     if (sl->rcount > 0) {
         if (sl->rbuff[0] != HLCAN_PACKET_START) {
             /* Need to sync on 0xaa at start of frames, so just skip. */
-            return MISSED_HEADER;
+			sl->rstate = RECEIVING;
+            return;
         }
     }
 
     if (sl->rcount < 2) {
-        return RECEIVING;
+		sl->rstate = RECEIVING;
+		return;
     }
 
     if (sl->rbuff[1] == HLCAN_CFG_PACKAGE_TYPE) { 
         if (sl->rcount >= HLCAN_CFG_PACKAGE_LEN) { 
             validate_cfg_checksum(sl);
-			*size = HLCAN_CFG_PACKAGE_LEN;
-			return COMPLETE;
+			sl->rstate = COMPLETE;
         } else {
-            return RECEIVING;
+            sl->rstate = RECEIVING;
         }
+		return;
     } else if (IS_DATA_PACKAGE(sl->rbuff[1])) { /* Data frame... */
-		unsigned char expected_size = 
-			sizeof(HLCAN_PACKET_START) +
+		sl->rexpected = sizeof(HLCAN_PACKET_START) +
 			1 + // type byte
 			IS_EXT_ID(sl->rbuff[1]) ? 4 : 2 +
 			GET_DLC(sl->rbuff[1]) +
 			sizeof(HLCAN_PACKET_END);
-		if (sl->rcount >= expected_size){
-			*size = expected_size;
-			return COMPLETE;
+		if (sl->rcount >= sl->rexpected){
+			sl->rstate = COMPLETE;
 		} else {
-			return RECEIVING;
+			sl->rstate = RECEIVING;
 		}
+		return;
     }
 
     /* Unhandled frame type. */
-    return COMPLETE;
+	sl->rstate = NONE;
 }
 
 /* parse tty input stream */
 static void slcan_unesc(struct slcan *sl, unsigned char s) {
-	unsigned char size = 0;
 	if (test_and_clear_bit(SLF_ERROR, &sl->flags)) {
 		return;
 	}
@@ -325,14 +326,22 @@ static void slcan_unesc(struct slcan *sl, unsigned char s) {
 	} 
 
 	sl->rbuff[sl->rcount++] = s;
-	switch(get_frame_state(sl, &size)){
+	
+	/* Only check state again after we received enough data */
+	if (RECEIVING == sl->rstate
+		&& sl->rcount < sl->rexpected){
+		return;
+	}
+	
+	get_frame_state(sl);
+	switch(sl->rstate) {
 		case COMPLETE:
 			if (IS_DATA_PACKAGE(sl->rbuff[1])) {
 				slc_bump(sl);
 			}
 			/* fall through */
 		case MISSED_HEADER:
-			sl->rcount -= size;
+			sl->rcount = 0;
 			break;
 		default: break;
 	}
@@ -629,6 +638,7 @@ static struct slcan *slc_alloc(void)
 
 	/* Initialize channel control data */
 	sl->magic = HLCAN_MAGIC;
+	sl->rstate = NONE;
 	sl->dev	= dev;
 	spin_lock_init(&sl->lock);
 	INIT_WORK(&sl->tx_work, slcan_transmit);

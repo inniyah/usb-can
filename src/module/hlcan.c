@@ -251,7 +251,7 @@ static void slc_bump(struct slcan *sl)
 	netif_rx_ni(skb);
 }
 
-static unsigned char generate_cfg_checksum(const struct slcan *sl){
+static unsigned char hlcan_create_crc(const struct slcan *sl){
 	unsigned char i, checksum;
 
     checksum = 0;
@@ -265,19 +265,19 @@ static unsigned char generate_cfg_checksum(const struct slcan *sl){
 }
 
 /* Compare checksum for command frames and print kernel warning */
-static void validate_cfg_checksum(const struct slcan *sl) {
-	unsigned char checksum = generate_cfg_checksum(sl);
+static void hlcan_check_crc(const struct slcan *sl) {
+	unsigned char checksum = hlcan_create_crc(sl);
 	if (checksum != *(sl->rbuff + HLCAN_CFG_PACKAGE_LEN - 1)) {
 		printk(KERN_WARNING "checksum validation failed\n");
 	}
 }
 
 /* get the state of the current receive transmission */
-static void get_frame_state(struct slcan *sl) {
+static void hlcan_update_rstate(struct slcan *sl) {
     if (sl->rcount > 0) {
         if (sl->rbuff[0] != HLCAN_PACKET_START) {
             /* Need to sync on 0xaa at start of frames, so just skip. */
-			sl->rstate = RECEIVING;
+			sl->rstate = MISSED_HEADER;
             return;
         }
     }
@@ -289,12 +289,11 @@ static void get_frame_state(struct slcan *sl) {
 
     if (sl->rbuff[1] == HLCAN_CFG_PACKAGE_TYPE) { 
         if (sl->rcount >= HLCAN_CFG_PACKAGE_LEN) { 
-            validate_cfg_checksum(sl);
+            hlcan_check_crc(sl);
 			sl->rstate = COMPLETE;
         } else {
             sl->rstate = RECEIVING;
         }
-		return;
     } else if (IS_DATA_PACKAGE(sl->rbuff[1])) { /* Data frame... */
 		sl->rexpected = sizeof(HLCAN_PACKET_START) +
 			1 + // type byte
@@ -306,11 +305,10 @@ static void get_frame_state(struct slcan *sl) {
 		} else {
 			sl->rstate = RECEIVING;
 		}
-		return;
-    }
-
-    /* Unhandled frame type. */
-	sl->rstate = NONE;
+    } else {
+		/* Unhandled frame type. */
+		sl->rstate = NONE;
+	}
 }
 
 /* parse tty input stream */
@@ -333,7 +331,7 @@ static void slcan_unesc(struct slcan *sl, unsigned char s) {
 		return;
 	}
 	
-	get_frame_state(sl);
+	hlcan_update_rstate(sl);
 	switch(sl->rstate) {
 		case COMPLETE:
 			if (IS_DATA_PACKAGE(sl->rbuff[1])) {

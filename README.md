@@ -17,16 +17,16 @@ And the whole thing is actually a USB to serial converter, for which Linux will 
 ## Requirements
 * can-utils
 
-## Install
+## Building & Installation
+To build the module and the userspace tools run ``make`` in ``src`` and ``src/modules`` or run
 ````
-make
-# optional
-sudo make install
+./build.sh
 ````
 
-# load module
+To install run ``make install`` in the folders listed above or 
+
 ````
-sudo insmod hl340_can.ko
+./build.sh install
 ````
 
 ## Usage
@@ -37,5 +37,5 @@ insmod hlcan.ko
 
 Create a new device 
 ````
-slcand -o -c -f -s6 ttyUSB0\n
+hlcand -o -c -f -s6 ttyUSB0
 ````

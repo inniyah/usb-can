@@ -36,13 +36,33 @@ insmod hlcan.ko
 ````
 
 Start hlcand
+Listen only 
 ````
-# Listen only 
+hlcand -m 2 -s 500000 /dev/ttyUSB0
+````
+
+Foreground
+````
+hlcand -F -s 500000 /dev/ttyUSB0
+````
+
+Extended Frames
+````
+hlcand -e -s 500000 /dev/ttyUSB0
+````
+
+Help 
+````
+Usage: ./hlcand [options] <tty> [canif-name]
+
+Options: -l         (set transciever to listen mode)
+         -s <speed> (set CAN speed in bits per second)
+         -S <speed> (set UART speed in baud)
+         -e         (set interface to extended id mode)
+         -F         (stay in foreground; no daemonize)
+         -m <mode>  (0: normal (default), 1: loopback, 2:silent, 3: loopback silent)
+         -h         (show this help page)
+
+Examples:
 slcand -m 2 -s 500000 /dev/ttyUSB0
-
-# Foreground
-slcand -F -s 500000 /dev/ttyUSB0
-
-# Extended Frames
-slcand -e -s 500000 /dev/ttyUSB0
 ````

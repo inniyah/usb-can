@@ -85,7 +85,7 @@ void print_usage(char *prg)
 	fprintf(stderr, "         -m <mode>  (0: normal (default), 1: loopback, 2:silent, 3: loopback silent)\n");
 	fprintf(stderr, "         -h         (show this help page)\n");
 	fprintf(stderr, "\nExamples:\n");
-	fprintf(stderr, "slcand -m 2 -s 500000 /dev/ttyUSB0\n");
+	fprintf(stderr, "hlcand -m 2 -s 500000 /dev/ttyUSB0\n");
 	fprintf(stderr, "\n");
 	exit(EXIT_FAILURE);
 }

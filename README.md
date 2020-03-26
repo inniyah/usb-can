@@ -64,5 +64,5 @@ Options: -l         (set transciever to listen mode)
          -h         (show this help page)
 
 Examples:
-slcand -m 2 -s 500000 /dev/ttyUSB0
+hlcand -m 2 -s 500000 /dev/ttyUSB0
 ````

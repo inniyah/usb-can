@@ -38,11 +38,11 @@ insmod hlcan.ko
 Start hlcand
 ````
 # Listen only 
-slcand -m 2 -s 500000 /dev/ttyUSB0
+hlcand -m 2 -s 500000 /dev/ttyUSB0
 
 # Foreground
-slcand -F -s 500000 /dev/ttyUSB0
+hlcand -F -s 500000 /dev/ttyUSB0
 
 # Extended Frames
-slcand -e -s 500000 /dev/ttyUSB0
+hlcand -e -s 500000 /dev/ttyUSB0
 ````

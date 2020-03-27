@@ -1,4 +1,4 @@
-#define N_HLCAN		31	/* line discipline for hlcan, value not used in kernel */
+#define N_HLCAN		29	/* line discipline for hlcan, value not used in kernel */
 
 
 #define HLCAN_MAGIC 0x53DA

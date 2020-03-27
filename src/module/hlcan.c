@@ -61,12 +61,10 @@
 
 #include "hlcan.h"
 
-
 MODULE_ALIAS_LDISC(N_HLCAN);
 MODULE_DESCRIPTION("hl340 CAN interface");
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Alexander Mohr <hlcan@mohr.io>");
-
 
 static int maxdev = 10;		/* MAX number of SLCAN channels;
 				   This can be overridden with
@@ -74,39 +72,36 @@ static int maxdev = 10;		/* MAX number of SLCAN channels;
 module_param(maxdev, int, 0);
 MODULE_PARM_DESC(maxdev, "Maximum number of slcan interfaces");
 
-
 /* maximum rx buffer len: 20 should be enough as config command is largest cmd*/
 #define SLC_MTU (128)
 
-
+#define SLF_INUSE		0		/* Channel in use            */
+#define SLF_ERROR		1		/* Parity, etc. error        */
 
 struct slcan {
 	int magic;
 	struct tty_struct	*tty;		/* ptr to TTY structure	     */
 	struct net_device	*dev;		/* easy for intr handling    */
-	spinlock_t		    lock;
+	spinlock_t		lock;
 	struct work_struct	tx_work;	/* Flushes transmit buffer   */
 
 	/* These are pointers to the malloc()ed frame buffers. */
-	unsigned char		rbuff[SLC_MTU];	/* receiver buffer	     	 */
-	int			        rcount;         /* received chars counter    */
-	int					rexpected;		/* expected chars counter 	 */
-	FRAME_STATE 		rstate; 		/* state of current receive  */
+	unsigned char		rbuff[SLC_MTU];	/* receiver buffer	     */
+	int			rcount;         /* received chars counter    */
+	int			rexpected;	/* expected chars counter    */
+	FRAME_STATE 		rstate; 	/* state of current receive  */
 	unsigned char		xbuff[SLC_MTU];	/* transmitter buffer	     */
 	unsigned char		*xhead;         /* pointer to next XMIT byte */
-	int			        xleft;          /* bytes left in XMIT queue  */
+	int			xleft;          /* bytes left in XMIT queue  */
 
 	unsigned long		flags;		/* Flag values/ mode etc     */
-    #define SLF_INUSE		0		/* Channel in use            */
-    #define SLF_ERROR		1       /* Parity, etc. error        */
 };
 
 static struct net_device **slcan_devs;
 
-
-/* 
-* Protocol handling
-*/
+/*
+ * Protocol handling
+ */
 #define IS_EXT_ID(type)({ \
 		(type & HLCAN_TYPE_MASK) == (HCLAN_EXT_REMOTE_FRAME) || \
 		(type & HLCAN_TYPE_MASK) == HLCAN_EXT_DATA_FRAME; })
@@ -116,18 +111,17 @@ static struct net_device **slcan_devs;
 		(type & HLCAN_TYPE_MASK) == HCLAN_STD_REMOTE_FRAME; })
 
 /* checks if bit 7 and 6 is set */
-#define IS_DATA_PACKAGE(type)({ \
+#define IS_DATA_PACKAGE(type) ({ \
 		((type >> 6) ^ 3) == 0;})
 
-#define GET_FRAME_ID(frame)({ 	   \
-	 IS_EXT_ID(frame[1]) 		   \
-		?	(frame[5] << 24) 	 | \
-			(frame[4] << 16) | 	   \
-			(frame[3] << 8)  | 	   \
-			(frame[2]) 			   \
-		: 	((frame[3] << 8) | 	   \
-			frame[2]); 			   \
-})
+#define GET_FRAME_ID(frame)({ 	   		\
+	 IS_EXT_ID(frame[1]) 			\
+		?	(frame[5] << 24) |	\
+			(frame[4] << 16) |	\
+			(frame[3] << 8)  |	\
+			(frame[2])		\
+		: 	((frame[3] << 8) |	\
+			frame[2]);})
 
 #define GET_DLC(type) ({type & 0x0f;})
 
@@ -219,28 +213,30 @@ static void slc_bump(struct slcan *sl)
 }
 
 /* get the state of the current receive transmission */
-static void hlcan_update_rstate(struct slcan *sl) {
-    if (sl->rcount > 0) {
-        if (sl->rbuff[0] != HLCAN_PACKET_START) {
-            /* Need to sync on 0xaa at start of frames, so just skip. */
+static void hlcan_update_rstate(struct slcan *sl)
+{
+	if (sl->rcount > 0) {
+		if (sl->rbuff[0] != HLCAN_PACKET_START) {
+			/* Need to sync on 0xaa at start of frames, so just skip. */
 			sl->rstate = MISSED_HEADER;
-            return;
-        }
-    }
+			 return;
+		}
+	}
 
-    if (sl->rcount < 2) {
+	if (sl->rcount < 2) {
 		sl->rstate = RECEIVING;
 		return;
-    }
+	}
 
-    if (sl->rbuff[1] == HLCAN_CFG_PACKAGE_TYPE) { 
-        if (sl->rcount >= HLCAN_CFG_PACKAGE_LEN) { 
+	if (sl->rbuff[1] == HLCAN_CFG_PACKAGE_TYPE) {
+		if (sl->rcount >= HLCAN_CFG_PACKAGE_LEN) {
 			/* will be handled by userspace tool */
 			sl->rstate = COMPLETE;
-        } else {
-            sl->rstate = RECEIVING;
-        }
-    } else if (IS_DATA_PACKAGE(sl->rbuff[1])) { /* Data frame... */
+	} else {
+		sl->rstate = RECEIVING;
+	}
+	} else if (IS_DATA_PACKAGE(sl->rbuff[1])) {
+		/* Data frame... */
 		sl->rexpected = sizeof(HLCAN_PACKET_START) +
 			1 + // type byte
 			IS_EXT_ID(sl->rbuff[1]) ? 4 : 2 +
@@ -251,14 +247,15 @@ static void hlcan_update_rstate(struct slcan *sl) {
 		} else {
 			sl->rstate = RECEIVING;
 		}
-    } else {
+	} else {
 		/* Unhandled frame type. */
 		sl->rstate = NONE;
 	}
 }
 
 /* parse tty input stream */
-static void slcan_unesc(struct slcan *sl, unsigned char s) {
+static void slcan_unesc(struct slcan *sl, unsigned char s)
+{
 	if (test_and_clear_bit(SLF_ERROR, &sl->flags)) {
 		return;
 	}
@@ -267,7 +264,7 @@ static void slcan_unesc(struct slcan *sl, unsigned char s) {
 		sl->dev->stats.rx_over_errors++;
 		set_bit(SLF_ERROR, &sl->flags);
 		return;
-	} 
+	}
 
 	sl->rbuff[sl->rcount++] = s;
 	
@@ -293,9 +290,9 @@ static void slcan_unesc(struct slcan *sl, unsigned char s) {
 	}
 }
 
- /************************************************************************
-  *			STANDARD SLCAN ENCAPSULATION			 *
-  ************************************************************************/
+/************************************************************************
+ *			STANDARD SLCAN ENCAPSULATION			*
+ ************************************************************************/
 
 /* Encapsulate one can_frame and stuff into a TTY queue. */
 static void slc_encaps(struct slcan *sl, struct can_frame *cf)
@@ -311,7 +308,7 @@ static void slc_encaps(struct slcan *sl, struct can_frame *cf)
 	*pos |= cf->can_dlc;
 	if (cf->can_id & CAN_RTR_FLAG) {
 		*pos &= HLCAN_FLAG_RTR;
-	} 
+	}
 
 	/* setup the frame id id */
 	/* mask the upper 3 bits because they are used for flags */
@@ -319,13 +316,13 @@ static void slc_encaps(struct slcan *sl, struct can_frame *cf)
 	if (cf->can_id & CAN_EFF_FLAG) {
 		*pos++ &= HLCAN_FLAG_ID_EXT;
 		*pos++ = (unsigned char) (id & 0xFF);
-        *pos++ = (unsigned char) ((id >> 8) & 0xFF);
-        *pos++ = (unsigned char) ((id >> 16) & 0xFF);
-        *pos++ = (unsigned char) ((id >> 24) & 0xFF);
+		*pos++ = (unsigned char) ((id >> 8) & 0xFF);
+		*pos++ = (unsigned char) ((id >> 16) & 0xFF);
+		*pos++ = (unsigned char) ((id >> 24) & 0xFF);
 	} else {
  		++pos;
 		*pos++ = (unsigned char) (id & 0xFF);
-        *pos++ = (unsigned char) ((id >> 8) & 0xFF);
+		*pos++ = (unsigned char) ((id >> 8) & 0xFF);
 	}
 
 	/* RTR frames may have a dlc > 0 but they never have any data bytes */
@@ -505,7 +502,6 @@ static void slc_setup(struct net_device *dev)
  * be re-entered while running but other ldisc functions may be called
  * in parallel
  */
-
 static void slcan_receive_buf(struct tty_struct *tty,
 			      const unsigned char *cp, char *fp, int count)
 {
@@ -597,7 +593,6 @@ static struct slcan *slc_alloc(void)
  *
  * Called in process context serialized from other ldisc calls.
  */
-
 static int slcan_open(struct tty_struct *tty)
 {
 	struct slcan *sl;
@@ -758,21 +753,23 @@ static int __init slcan_init(void)
 		printk(KERN_ERR "hlcan: can't register line discipline\n");
 		kfree(slcan_devs);
 	}
+
 	return status;
 }
 
 static void __exit slcan_exit(void)
 {
-	int i;
+	unsigned long timeout = jiffies + HZ;
 	struct net_device *dev;
 	struct slcan *sl;
-	unsigned long timeout = jiffies + HZ;
 	int busy = 0;
+	int i;
 
 	if (slcan_devs == NULL)
 		return;
 
-	/* First of all: check for active disciplines and hangup them.
+	/*
+	 * First of all: check for active disciplines and hangup them.
 	 */
 	do {
 		if (busy)
@@ -800,6 +797,7 @@ static void __exit slcan_exit(void)
 		dev = slcan_devs[i];
 		if (!dev)
 			continue;
+
 		slcan_devs[i] = NULL;
 
 		sl = netdev_priv(dev);

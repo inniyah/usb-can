@@ -117,104 +117,105 @@ static void child_handler(int signum)
 	}
 }
 
+static unsigned char hlcan_create_crc(unsigned char* data)
+{
+	unsigned char i, checksum = 0;
 
-static unsigned char hlcan_create_crc(unsigned char* data){
-	unsigned char i, checksum;
+	for (i = HLCAN_CFG_CRC_IDX;
+			i < HLCAN_CFG_PACKAGE_LEN - HLCAN_CFG_CRC_IDX - 1;
+			++i) {
+		checksum += *(data + i);
+	}
 
-    checksum = 0;
-    for (i = HLCAN_CFG_CRC_IDX;
-		 i < HLCAN_CFG_PACKAGE_LEN - HLCAN_CFG_CRC_IDX - 1;
-		 ++i) {
-        checksum += *(data + i);
-    }
-
-    return checksum & 0xff;
+	return checksum & 0xff;
 }
 
-static int command_settings(HLCAN_SPEED speed, 
-	HLCAN_MODE mode, 
-	HLCAN_FRAME_TYPE frame,
-	int fd) {
-    int cmd_frame_len;
-    unsigned char cmd_frame[HLCAN_CFG_PACKAGE_LEN];
+static int command_settings(HLCAN_SPEED speed,
+			    HLCAN_MODE mode,
+			    HLCAN_FRAME_TYPE frame,
+			    int fd)
+{
+	int cmd_frame_len;
+	unsigned char cmd_frame[HLCAN_CFG_PACKAGE_LEN];
 
-    cmd_frame_len = 0;
-    cmd_frame[cmd_frame_len++] = HLCAN_PACKET_START;
-    cmd_frame[cmd_frame_len++] = HLCAN_CFG_PACKAGE_TYPE;
-    cmd_frame[cmd_frame_len++] = 0x12;
-    cmd_frame[cmd_frame_len++] = speed;
-    cmd_frame[cmd_frame_len++] = frame;
-    cmd_frame[cmd_frame_len++] = 0; /* Filter ID not handled. */
-    cmd_frame[cmd_frame_len++] = 0; /* Filter ID not handled. */
-    cmd_frame[cmd_frame_len++] = 0; /* Filter ID not handled. */
-    cmd_frame[cmd_frame_len++] = 0; /* Filter ID not handled. */
-    cmd_frame[cmd_frame_len++] = 0; /* Mask ID not handled. */
-    cmd_frame[cmd_frame_len++] = 0; /* Mask ID not handled. */
-    cmd_frame[cmd_frame_len++] = 0; /* Mask ID not handled. */
-    cmd_frame[cmd_frame_len++] = 0; /* Mask ID not handled. */
-    cmd_frame[cmd_frame_len++] = mode;
-    cmd_frame[cmd_frame_len++] = 0x01; // ?
-    cmd_frame[cmd_frame_len++] = 0;
-    cmd_frame[cmd_frame_len++] = 0;
-    cmd_frame[cmd_frame_len++] = 0;
-    cmd_frame[cmd_frame_len++] = 0;
-    cmd_frame[cmd_frame_len++] = hlcan_create_crc(cmd_frame);
+	cmd_frame_len = 0;
+	cmd_frame[cmd_frame_len++] = HLCAN_PACKET_START;
+	cmd_frame[cmd_frame_len++] = HLCAN_CFG_PACKAGE_TYPE;
+	cmd_frame[cmd_frame_len++] = 0x12;
+	cmd_frame[cmd_frame_len++] = speed;
+	cmd_frame[cmd_frame_len++] = frame;
+	cmd_frame[cmd_frame_len++] = 0; /* Filter ID not handled. */
+	cmd_frame[cmd_frame_len++] = 0; /* Filter ID not handled. */
+	cmd_frame[cmd_frame_len++] = 0; /* Filter ID not handled. */
+	cmd_frame[cmd_frame_len++] = 0; /* Filter ID not handled. */
+	cmd_frame[cmd_frame_len++] = 0; /* Mask ID not handled. */
+	cmd_frame[cmd_frame_len++] = 0; /* Mask ID not handled. */
+	cmd_frame[cmd_frame_len++] = 0; /* Mask ID not handled. */
+	cmd_frame[cmd_frame_len++] = 0; /* Mask ID not handled. */
+	cmd_frame[cmd_frame_len++] = mode;
+	cmd_frame[cmd_frame_len++] = 0x01; // ?
+	cmd_frame[cmd_frame_len++] = 0;
+	cmd_frame[cmd_frame_len++] = 0;
+	cmd_frame[cmd_frame_len++] = 0;
+	cmd_frame[cmd_frame_len++] = 0;
+	cmd_frame[cmd_frame_len++] = hlcan_create_crc(cmd_frame);
 
-    if (write(fd, cmd_frame, HLCAN_CFG_PACKAGE_LEN) < 0) {
-        syslogger(LOG_ERR, "write() failed: %s", strerror(errno));
+	if (write(fd, cmd_frame, HLCAN_CFG_PACKAGE_LEN) < 0) {
+		syslogger(LOG_ERR, "write() failed: %s", strerror(errno));
 		return -1;
-    }
+	}
 
 	return 0;
 }
 
-static HLCAN_SPEED HLCAN_int_to_speed(const int speed) {
-    switch (speed) {
-        case 1000000:
-            return HLCAN_SPEED_1000000;
-        case 800000:
-            return HLCAN_SPEED_800000;
-        case 500000:
-            return HLCAN_SPEED_500000;
-        case 400000:
-            return HLCAN_SPEED_400000;
-        case 250000:
-            return HLCAN_SPEED_250000;
-        case 200000:
-            return HLCAN_SPEED_200000;
-        case 125000:
-            return HLCAN_SPEED_125000;
-        case 100000:
-            return HLCAN_SPEED_100000;
-        case 50000:
-            return HLCAN_SPEED_50000;
-        case 20000:
-            return HLCAN_SPEED_20000;
-        case 10000:
-            return HLCAN_SPEED_10000;
-        case 5000:
-            return HLCAN_SPEED_5000;
-        default:
-            return HLCAN_SPEED_INVALID;
-    }
+static HLCAN_SPEED HLCAN_int_to_speed(const int speed)
+{
+	switch (speed) {
+	case 1000000:
+		return HLCAN_SPEED_1000000;
+	case 800000:
+		return HLCAN_SPEED_800000;
+	case 500000:
+		return HLCAN_SPEED_500000;
+	case 400000:
+		return HLCAN_SPEED_400000;
+	case 250000:
+		return HLCAN_SPEED_250000;
+	case 200000:
+		return HLCAN_SPEED_200000;
+	case 125000:
+		return HLCAN_SPEED_125000;
+	case 100000:
+		return HLCAN_SPEED_100000;
+	case 50000:
+		return HLCAN_SPEED_50000;
+	case 20000:
+		return HLCAN_SPEED_20000;
+	case 10000:
+		return HLCAN_SPEED_10000;
+	case 5000:
+		return HLCAN_SPEED_5000;
+	default:
+		return HLCAN_SPEED_INVALID;
+	}
 }
 
 int main(int argc, char *argv[])
 {
-	char *tty = NULL;
-	char const *devprefix = "/dev/";
-	char *name = NULL;
-	char buf[20];
+	const char *devprefix = "/dev/";
+	char *uart_speed_str = NULL;
 	static struct ifreq ifr;
 	struct termios2 tios;
+	char *name = NULL;
+	char *tty = NULL;
+	char *pch;
+	char buf[20];
+	int fd, opt;
 
-	int opt;
-	char *uart_speed_str = NULL;
 	long int uart_speed = DEFAULT_UART_SPEED;
 	int run_as_daemon = 1;
-	char *pch;
 	int ldisc = N_HLCAN;
-	int fd;
+
 	HLCAN_MODE mode = HLCAN_MODE_NORMAL;
 	HLCAN_SPEED speed = HLCAN_SPEED_500000;
 	HLCAN_FRAME_TYPE type = HLCAN_FRAME_STANDARD;
@@ -291,29 +292,29 @@ int main(int argc, char *argv[])
 		exit(EXIT_FAILURE);
 	}
 
-    if (ioctl(fd, TCGETS2, &tios) < 0) {
-        syslogger(LOG_NOTICE, "ioctl() failed: %s\n", strerror(errno));
-        close(fd);
-       	exit(EXIT_FAILURE);
-    }
+	if (ioctl(fd, TCGETS2, &tios) < 0) {
+		syslogger(LOG_NOTICE, "ioctl() failed: %s\n", strerror(errno));
+		close(fd);
+		exit(EXIT_FAILURE);
+	}
 
-    tios.c_cflag &= ~CBAUD;
-    tios.c_cflag = BOTHER | CS8 | CSTOPB;
-    tios.c_iflag = IGNPAR;
-    tios.c_oflag = 0;
-    tios.c_lflag = 0;
-    tios.c_ispeed = (speed_t) uart_speed;
-    tios.c_ospeed = (speed_t) uart_speed;
+	tios.c_cflag &= ~CBAUD;
+	tios.c_cflag = BOTHER | CS8 | CSTOPB;
+	tios.c_iflag = IGNPAR;
+	tios.c_oflag = 0;
+	tios.c_lflag = 0;
+	tios.c_ispeed = (speed_t) uart_speed;
+	tios.c_ospeed = (speed_t) uart_speed;
 
-    if (ioctl(fd, TCSETS2, &tios) < 0) {
-        syslogger(LOG_NOTICE, "ioctl() failed: %s\n", strerror(errno));
-        close(fd);
-        exit(EXIT_FAILURE);
-    }
+	if (ioctl(fd, TCSETS2, &tios) < 0) {
+		syslogger(LOG_NOTICE, "ioctl() failed: %s\n", strerror(errno));
+		close(fd);
+		exit(EXIT_FAILURE);
+	}
 
 	if (command_settings(speed, mode, type, fd) < 0){
 		close(fd);
-        exit(EXIT_FAILURE);
+        	exit(EXIT_FAILURE);
 	}
 
 	/* set hlcan like discipline on given tty */
@@ -349,7 +350,7 @@ int main(int argc, char *argv[])
 				syslogger(LOG_NOTICE, "netdevice %s renamed to %s\n", buf, name);
 
 			close(s);
-		}	
+		}
 	}
 
 	/* Daemonize */
@@ -358,8 +359,7 @@ int main(int argc, char *argv[])
 			syslogger(LOG_ERR, "failed to daemonize");
 			exit(EXIT_FAILURE);
 		}
-	}
-	else {
+	} else {
 		/* Trap signals that we expect to receive */
 		signal(SIGINT, child_handler);
 		signal(SIGTERM, child_handler);
@@ -367,9 +367,9 @@ int main(int argc, char *argv[])
 
 	slcand_running = 1;
 
-	/* The Big Loop */
+	/* The Big Loop, wait 1 second */
 	while (slcand_running)
-		sleep(1); /* wait 1 second */
+		sleep(1);
 
 	/* Reset line discipline */
 	syslogger(LOG_INFO, "stopping on TTY device %s", ttypath);

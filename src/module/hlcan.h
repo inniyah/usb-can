@@ -1,6 +1,5 @@
 #define N_HLCAN		29	/* line discipline for hlcan, value not used in kernel */
 
-
 #define HLCAN_MAGIC 0x53DA
 
 #define HLCAN_FRAME_PREFIX 	0xC0
@@ -22,9 +21,9 @@
 
 typedef enum {
 	NONE,
-    RECEIVING,
-    COMPLETE,
-    MISSED_HEADER
+	RECEIVING,
+	COMPLETE,
+	MISSED_HEADER
 } FRAME_STATE;
 
 typedef enum {

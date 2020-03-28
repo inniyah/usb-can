@@ -78,6 +78,7 @@ MODULE_PARM_DESC(maxdev, "Maximum number of hlcan interfaces");
 #define DRV_NAME			"hlcan"
 #define SLF_INUSE		0		/* Channel in use            */
 #define SLF_ERROR		1		/* Parity, etc. error        */
+spinlock_t		global_lock;
 
 struct slcan {
 	struct can_priv can;
@@ -478,21 +479,11 @@ static int slc_open(struct net_device *dev)
 	return 0;
 }
 
-/* Hook the destructor so we can free slcan devs at the right point in time */
-static void slc_free_netdev(struct net_device *dev) {
-	int i = dev->base_addr;
-	slcan_devs[i] = NULL;
-}
-
-static int slcan_change_mtu(struct net_device *dev, int new_mtu) {
-	return 0;
-}
-
 static const struct net_device_ops slc_netdev_ops = {
 	.ndo_open               = slc_open,
 	.ndo_stop               = slc_close,
 	.ndo_start_xmit         = slc_xmit,
-	.ndo_change_mtu         = slcan_change_mtu,
+	.ndo_change_mtu         = can_change_mtu,
 };
 
 
@@ -553,8 +544,7 @@ static void slc_sync(void)
 }
 
 
-static int hlcan_do_set_mode(struct net_device *dev, enum can_mode mode)
-{
+static int hlcan_do_set_mode(struct net_device *dev, enum can_mode mode){
 	int ret;
 	struct slcan *sl = netdev_priv(dev);
 
@@ -565,12 +555,6 @@ static int hlcan_do_set_mode(struct net_device *dev, enum can_mode mode)
 	default:
 		return -EOPNOTSUPP;
 	}
-}
-
-static int hlcan_get_berr_counter(const struct net_device *net,
-				   struct can_berr_counter *bec)
-{
-	return 0;
 }
 
 
@@ -586,7 +570,6 @@ static struct slcan *slc_alloc(void)
 		dev = slcan_devs[i];
 		if (dev == NULL)
 			break;
-
 	}
 
 	/* Sorry, too many, all slots in use */
@@ -601,31 +584,20 @@ static struct slcan *slc_alloc(void)
 	sl = netdev_priv(dev);
 	
 	dev->netdev_ops = &slc_netdev_ops;
-	dev->netdev_ops		= &slc_netdev_ops;
-	dev->needs_free_netdev	= true;
-	dev->priv_destructor	= slc_free_netdev;
+	dev->flags |= IFF_ECHO;
 
-	dev->hard_header_len	= 0;
-	dev->addr_len		= 0;
-	dev->tx_queue_len	= 10;
-
-	dev->mtu		= CAN_MTU;
-	dev->type		= ARPHRD_CAN;
-
-	/* New-style flags. */
-	dev->flags		= IFF_NOARP;
-	dev->features           = NETIF_F_HW_CSUM;
-
-
-	sl->can.bittiming_const = &hlcan_bittiming_const;
+	/* this does not actually matter when we use the serial port */
+	/* todo set this to a propper value */
+	sl->can.clock.freq = 3686400000; 
+	sl->can.data_bittiming_const = &hlcan_bittiming_const;
+	sl->can.bittiming.bitrate = 800000;
 	sl->can.do_set_mode = hlcan_do_set_mode;
-	sl->can.do_get_berr_counter = hlcan_get_berr_counter;
 	sl->can.ctrlmode_supported = CAN_CTRLMODE_LOOPBACK |
-		CAN_CTRLMODE_3_SAMPLES |
-		CAN_CTRLMODE_LISTENONLY	|
-		CAN_CTRLMODE_BERR_REPORTING;
+		CAN_CTRLMODE_3_SAMPLES | 
+		CAN_CTRLMODE_FD |
+		CAN_CTRLMODE_LISTENONLY;
 
-	dev->base_addr  = i;
+	dev->base_addr = i;
 
 	/* Initialize channel control data */
 	sl->magic = HLCAN_MAGIC;
@@ -658,11 +630,8 @@ static int slcan_open(struct tty_struct *tty)
 	if (tty->ops->write == NULL)
 		return -EOPNOTSUPP;
 
-	/* RTnetlink lock is misused here to serialize concurrent
-	   opens of slcan channels. There are better ways, but it is
-	   the simplest one.
-	 */
-	rtnl_lock();
+	/* sync concurrent opens on global lock */
+	spin_lock_bh(&global_lock);
 
 	/* Collect hanged up channels. */
 	slc_sync();
@@ -677,11 +646,13 @@ static int slcan_open(struct tty_struct *tty)
 	/* OK.  Find a free SLCAN channel to use. */
 	err = -ENFILE;
 	sl = slc_alloc();
+	
+	SET_NETDEV_DEV(sl->dev, tty->dev);
 	if (sl == NULL) {
 		err = -ENOMEM;
 		goto err_exit;
 	}
-		
+
 	sl->tty = tty;
 	tty->disc_data = sl;
 
@@ -695,11 +666,12 @@ static int slcan_open(struct tty_struct *tty)
 		err = register_candev(sl->dev);
 		if (err)
 			goto err_free_chan;
+
 		sl->candev_registered = 1;
 	}
 
 	/* Done.  We have linked the TTY line to a channel. */
-	rtnl_unlock();
+	spin_unlock_bh(&global_lock);
 	tty->receive_room = 65536;	/* We don't flow control */
 
 	/* TTY layer expects 0 on success */
@@ -711,8 +683,7 @@ err_free_chan:
 	clear_bit(SLF_INUSE, &sl->flags);
 
 err_exit:
-	rtnl_unlock();
-
+	spin_unlock_bh(&global_lock);
 	/* Count references from TTY module */
 	return err;
 }
@@ -778,7 +749,6 @@ static int slcan_ioctl(struct tty_struct *tty, struct file *file,
 	}
 }
 
-// todo remove this
 static struct tty_ldisc_ops slc_ldisc = {
 	.owner		= THIS_MODULE,
 	.magic		= TTY_LDISC_MAGIC,
@@ -811,6 +781,7 @@ static int __init slcan_init(void)
 		printk(KERN_ERR "hlcan: can't register line discipline\n");
 		kfree(slcan_devs);
 	}
+	spin_lock_init(&global_lock);
 
 	return status;
 }

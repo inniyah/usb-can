@@ -57,6 +57,7 @@
 #include <linux/kernel.h>
 #include <linux/workqueue.h>
 #include <linux/can.h>
+#include <linux/can/dev.h>
 #include <linux/can/skb.h>
 
 #include "hlcan.h"
@@ -70,15 +71,16 @@ static int maxdev = 10;		/* MAX number of SLCAN channels;
 				   This can be overridden with
 				   insmod slcan.ko maxdev=nnn	*/
 module_param(maxdev, int, 0);
-MODULE_PARM_DESC(maxdev, "Maximum number of slcan interfaces");
+MODULE_PARM_DESC(maxdev, "Maximum number of hlcan interfaces");
 
 /* maximum rx buffer len: 20 should be enough as config command is largest cmd*/
 #define SLC_MTU (128)
-
+#define DRV_NAME			"hlcan"
 #define SLF_INUSE		0		/* Channel in use            */
 #define SLF_ERROR		1		/* Parity, etc. error        */
 
 struct slcan {
+	struct can_priv can;
 	int magic;
 	struct tty_struct	*tty;		/* ptr to TTY structure	     */
 	struct net_device	*dev;		/* easy for intr handling    */
@@ -95,6 +97,19 @@ struct slcan {
 	int			xleft;          /* bytes left in XMIT queue  */
 
 	unsigned long		flags;		/* Flag values/ mode etc     */
+	int candev_registered;
+};
+
+static const struct can_bittiming_const hlcan_bittiming_const = {
+	.name = DRV_NAME,
+	.tseg1_min = 2,
+	.tseg1_max = 16,
+	.tseg2_min = 2,
+	.tseg2_max = 8,
+	.sjw_max = 4,
+	.brp_min = 1,
+	.brp_max = 64,
+	.brp_inc = 1,
 };
 
 static struct net_device **slcan_devs;
@@ -209,7 +224,7 @@ static void slc_bump(struct slcan *sl)
 
 	sl->dev->stats.rx_packets++;
 	sl->dev->stats.rx_bytes += cf.can_dlc;
-	netif_rx_ni(skb);
+	netif_receive_skb(skb);
 }
 
 /* get the state of the current receive transmission */
@@ -436,32 +451,40 @@ static int slc_close(struct net_device *dev)
 	sl->xleft    = 0;
 	spin_unlock_bh(&sl->lock);
 
+	sl->can.state = CAN_STATE_STOPPED;
+	close_candev(dev);
+
 	return 0;
 }
 
 /* Netdevice DOWN -> UP routine */
 static int slc_open(struct net_device *dev)
 {
+	int ret;
 	struct slcan *sl = netdev_priv(dev);
 
 	if (sl->tty == NULL)
 		return -ENODEV;
 
+	/* Common open */
+	ret = open_candev(dev);
+	if (ret) {
+		return ret;
+	}
+
 	sl->flags &= (1 << SLF_INUSE);
+	sl->can.state = CAN_STATE_ERROR_ACTIVE;
 	netif_start_queue(dev);
 	return 0;
 }
 
 /* Hook the destructor so we can free slcan devs at the right point in time */
-static void slc_free_netdev(struct net_device *dev)
-{
+static void slc_free_netdev(struct net_device *dev) {
 	int i = dev->base_addr;
-
 	slcan_devs[i] = NULL;
 }
 
-static int slcan_change_mtu(struct net_device *dev, int new_mtu)
-{
+static int slcan_change_mtu(struct net_device *dev, int new_mtu) {
 	return 0;
 }
 
@@ -472,23 +495,6 @@ static const struct net_device_ops slc_netdev_ops = {
 	.ndo_change_mtu         = slcan_change_mtu,
 };
 
-static void slc_setup(struct net_device *dev)
-{
-	dev->netdev_ops		= &slc_netdev_ops;
-	dev->needs_free_netdev	= true;
-	dev->priv_destructor	= slc_free_netdev;
-
-	dev->hard_header_len	= 0;
-	dev->addr_len		= 0;
-	dev->tx_queue_len	= 10;
-
-	dev->mtu		= CAN_MTU;
-	dev->type		= ARPHRD_CAN;
-
-	/* New-style flags. */
-	dev->flags		= IFF_NOARP;
-	dev->features           = NETIF_F_HW_CSUM;
-}
 
 /******************************************
   Routines looking at TTY side.
@@ -546,6 +552,28 @@ static void slc_sync(void)
 	}
 }
 
+
+static int hlcan_do_set_mode(struct net_device *dev, enum can_mode mode)
+{
+	int ret;
+	struct slcan *sl = netdev_priv(dev);
+
+	switch (mode) {
+	case CAN_MODE_START:
+		sl->can.state = CAN_STATE_ERROR_ACTIVE;
+		return ret;
+	default:
+		return -EOPNOTSUPP;
+	}
+}
+
+static int hlcan_get_berr_counter(const struct net_device *net,
+				   struct can_berr_counter *bec)
+{
+	return 0;
+}
+
+
 /* Find a free SLCAN channel, and link in this `tty' line. */
 static struct slcan *slc_alloc(void)
 {
@@ -566,12 +594,38 @@ static struct slcan *slc_alloc(void)
 		return NULL;
 
 	sprintf(name, "hlcan%d", i);
-	dev = alloc_netdev(sizeof(*sl), name, NET_NAME_UNKNOWN, slc_setup);
+	dev = alloc_candev(sizeof(*sl), 1);
 	if (!dev)
 		return NULL;
 
-	dev->base_addr  = i;
 	sl = netdev_priv(dev);
+	
+	dev->netdev_ops = &slc_netdev_ops;
+	dev->netdev_ops		= &slc_netdev_ops;
+	dev->needs_free_netdev	= true;
+	dev->priv_destructor	= slc_free_netdev;
+
+	dev->hard_header_len	= 0;
+	dev->addr_len		= 0;
+	dev->tx_queue_len	= 10;
+
+	dev->mtu		= CAN_MTU;
+	dev->type		= ARPHRD_CAN;
+
+	/* New-style flags. */
+	dev->flags		= IFF_NOARP;
+	dev->features           = NETIF_F_HW_CSUM;
+
+
+	sl->can.bittiming_const = &hlcan_bittiming_const;
+	sl->can.do_set_mode = hlcan_do_set_mode;
+	sl->can.do_get_berr_counter = hlcan_get_berr_counter;
+	sl->can.ctrlmode_supported = CAN_CTRLMODE_LOOPBACK |
+		CAN_CTRLMODE_3_SAMPLES |
+		CAN_CTRLMODE_LISTENONLY	|
+		CAN_CTRLMODE_BERR_REPORTING;
+
+	dev->base_addr  = i;
 
 	/* Initialize channel control data */
 	sl->magic = HLCAN_MAGIC;
@@ -623,9 +677,11 @@ static int slcan_open(struct tty_struct *tty)
 	/* OK.  Find a free SLCAN channel to use. */
 	err = -ENFILE;
 	sl = slc_alloc();
-	if (sl == NULL)
+	if (sl == NULL) {
+		err = -ENOMEM;
 		goto err_exit;
-
+	}
+		
 	sl->tty = tty;
 	tty->disc_data = sl;
 
@@ -636,9 +692,10 @@ static int slcan_open(struct tty_struct *tty)
 
 		set_bit(SLF_INUSE, &sl->flags);
 
-		err = register_netdevice(sl->dev);
+		err = register_candev(sl->dev);
 		if (err)
 			goto err_free_chan;
+		sl->candev_registered = 1;
 	}
 
 	/* Done.  We have linked the TTY line to a channel. */
@@ -684,7 +741,8 @@ static void slcan_close(struct tty_struct *tty)
 	flush_work(&sl->tx_work);
 
 	/* Flush network side */
-	unregister_netdev(sl->dev);
+	unregister_candev(sl->dev);
+	sl->candev_registered = 0;
 	/* This will complete via sl_free_netdev */
 }
 
@@ -806,7 +864,8 @@ static void __exit slcan_exit(void)
 			       dev->name);
 		}
 
-		unregister_netdev(dev);
+		if (sl->candev_registered)
+			unregister_candev(dev);
 	}
 
 	kfree(slcan_devs);

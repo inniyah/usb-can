@@ -187,8 +187,8 @@ static void slc_bump(struct slcan *sl)
 	unsigned char *cmd = sl->rbuff + 1;
 	
 	cf.can_dlc = GET_DLC(*cmd);
-	cf.can_id = GET_FRAME_ID(cmd);
-
+	cf.can_id = GET_FRAME_ID(sl->rbuff);
+	
 	if (IS_REMOTE(*cmd)){
 		cf.can_id |= CAN_RTR_FLAG;
 		data_start = 6;
@@ -197,9 +197,7 @@ static void slc_bump(struct slcan *sl)
 	if (IS_EXT_ID(*cmd)) {
 		cf.can_id |= CAN_EFF_FLAG;
 	}
-
 	*(u64 *) (&cf.data) = 0; /* clear payload */
-
 	/* RTR frames may have a dlc > 0 but they never have any data bytes */
 	if (!(cf.can_id & CAN_RTR_FLAG)) {
 		memcpy(cf.data, 
@@ -248,16 +246,20 @@ static void hlcan_update_rstate(struct slcan *sl)
 		if (sl->rcount >= HLCAN_CFG_PACKAGE_LEN) {
 			/* will be handled by userspace tool */
 			sl->rstate = COMPLETE;
-	} else {
-		sl->rstate = RECEIVING;
-	}
+		} else {
+			sl->rstate = RECEIVING;
+		}
 	} else if (IS_DATA_PACKAGE(sl->rbuff[1])) {
 		/* Data frame... */
-		sl->rexpected = sizeof(HLCAN_PACKET_START) +
+		int ext_id = IS_EXT_ID(sl->rbuff[1]) ? 4 : 2;
+		int dlc = GET_DLC(sl->rbuff[1]);
+		
+		sl->rexpected =	1 + // HLCAN_PACKET_START
 			1 + // type byte
-			IS_EXT_ID(sl->rbuff[1]) ? 4 : 2 +
-			GET_DLC(sl->rbuff[1]) +
-			sizeof(HLCAN_PACKET_END);
+			ext_id +
+			dlc + 
+			1; // HLCAN_PACKET_END
+		
 		if (sl->rcount >= sl->rexpected){
 			sl->rstate = COMPLETE;
 		} else {
@@ -283,7 +285,8 @@ static void slcan_unesc(struct slcan *sl, unsigned char s)
 	}
 
 	sl->rbuff[sl->rcount++] = s;
-	
+	//printk("new char received %i\n", s);
+
 	/* Only check state again after we received enough data */
 	if (RECEIVING == sl->rstate
 		&& sl->rexpected > 0
@@ -316,6 +319,8 @@ static void slc_encaps(struct slcan *sl, struct can_frame *cf)
 	int actual, i;
 	unsigned char *pos;
 	u32 id;
+	
+	//printk("Sending frame to tty device");
 
 	pos = sl->xbuff;
 	*pos++ = HLCAN_PACKET_START;
@@ -504,8 +509,10 @@ static void slcan_receive_buf(struct tty_struct *tty,
 {
 	struct slcan *sl = (struct slcan *) tty->disc_data;
 
-	if (!sl || sl->magic != HLCAN_MAGIC || !netif_running(sl->dev))
+	if (!sl || sl->magic != HLCAN_MAGIC || !netif_running(sl->dev)){
+		printk("Serial device not ready\n");
 		return;
+	}
 
 	/* Read the characters out of the buffer */
 	while (count--) {
@@ -584,7 +591,8 @@ static struct slcan *slc_alloc(void)
 	sl = netdev_priv(dev);
 	
 	dev->netdev_ops = &slc_netdev_ops;
-	dev->flags |= IFF_ECHO;
+	// Device does NOT echo on itself
+	// dev->flags |= IFF_ECHO;
 
 	/* this does not actually matter when we use the serial port */
 	/* todo set this to a propper value */
@@ -623,6 +631,7 @@ static int slcan_open(struct tty_struct *tty)
 {
 	struct slcan *sl;
 	int err;
+	printk("Opening HLCAN interface\n");
 
 	if (!capable(CAP_NET_ADMIN))
 		return -EPERM;
@@ -675,6 +684,7 @@ static int slcan_open(struct tty_struct *tty)
 	tty->receive_room = 65536;	/* We don't flow control */
 
 	/* TTY layer expects 0 on success */
+	printk("Interface open\n");
 	return 0;
 
 err_free_chan:
@@ -749,6 +759,11 @@ static int slcan_ioctl(struct tty_struct *tty, struct file *file,
 	}
 }
 
+static void hlcan_flush_to_ldisc(struct tty_struct *tty) {
+
+}
+
+
 static struct tty_ldisc_ops slc_ldisc = {
 	.owner		= THIS_MODULE,
 	.magic		= TTY_LDISC_MAGIC,
@@ -759,6 +774,7 @@ static struct tty_ldisc_ops slc_ldisc = {
 	.ioctl		= slcan_ioctl,
 	.receive_buf	= slcan_receive_buf,
 	.write_wakeup	= slcan_write_wakeup,
+	.flush_buffer	= hlcan_flush_to_ldisc,
 };
 
 static int __init slcan_init(void)

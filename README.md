@@ -32,6 +32,7 @@ To install run ``make install`` in the folders listed above or
 ## Usage
 Load the kernel module 
 ````
+modprobe can-dev
 insmod hlcan.ko
 ````
 

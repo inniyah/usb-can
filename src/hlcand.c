@@ -306,6 +306,13 @@ int main(int argc, char *argv[])
 	tios.c_ispeed = (speed_t) uart_speed;
 	tios.c_ospeed = (speed_t) uart_speed;
 
+	// Because of a recent change in linux - https://patchwork.kernel.org/patch/9589541/
+	// we need to set low latency flag to get proper receive latency
+	struct serial_struct snew;
+	ioctl (fd, TIOCGSERIAL, &snew);
+	snew.flags |= ASYNC_LOW_LATENCY;
+	ioctl (fd, TIOCSSERIAL, &snew);
+
 	if (ioctl(fd, TCSETS2, &tios) < 0) {
 		syslogger(LOG_NOTICE, "ioctl() failed: %s\n", strerror(errno));
 		close(fd);

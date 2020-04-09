@@ -99,6 +99,7 @@ struct slcan {
 
 	unsigned long		flags;		/* Flag values/ mode etc     */
 	int candev_registered;
+	int mode;
 };
 
 static const struct can_bittiming_const hlcan_bittiming_const = {
@@ -194,6 +195,11 @@ static void slc_bump(struct slcan *sl)
 		data_start = 6;
 	}
 
+	// echo mode aligns data a bit differnet
+	if (sl->mode == 1 || sl->mode == 3){
+		data_start--;
+	}
+
 	if (IS_EXT_ID(*cmd)) {
 		cf.can_id |= CAN_EFF_FLAG;
 	}
@@ -223,7 +229,7 @@ static void slc_bump(struct slcan *sl)
 
 	sl->dev->stats.rx_packets++;
 	sl->dev->stats.rx_bytes += cf.can_dlc;
-	netif_receive_skb(skb);
+	netif_rx(skb);
 }
 
 /* get the state of the current receive transmission */
@@ -611,6 +617,7 @@ static struct slcan *slc_alloc(void)
 	sl->magic = HLCAN_MAGIC;
 	sl->rstate = NONE;
 	sl->dev	= dev;
+	sl->mode = 0;
 	spin_lock_init(&sl->lock);
 	INIT_WORK(&sl->tx_work, slcan_transmit);
 	slcan_devs[i] = dev;
@@ -631,7 +638,6 @@ static int slcan_open(struct tty_struct *tty)
 {
 	struct slcan *sl;
 	int err;
-	printk("Opening HLCAN interface\n");
 
 	if (!capable(CAP_NET_ADMIN))
 		return -EPERM;
@@ -684,7 +690,6 @@ static int slcan_open(struct tty_struct *tty)
 	tty->receive_room = 65536;	/* We don't flow control */
 
 	/* TTY layer expects 0 on success */
-	printk("Interface open\n");
 	return 0;
 
 err_free_chan:
@@ -753,6 +758,15 @@ static int slcan_ioctl(struct tty_struct *tty, struct file *file,
 
 	case SIOCSIFHWADDR:
 		return -EINVAL;
+
+	case IO_CTL_MODE:
+		sl->mode = arg;
+		printk("hlcan: new device mode %i\n", sl->mode);
+		if (sl->mode == 1 || sl->mode == 3){
+			sl->dev->flags |= IFF_ECHO;
+		}
+			
+		return 0;
 
 	default:
 		return tty_mode_ioctl(tty, file, cmd, arg);

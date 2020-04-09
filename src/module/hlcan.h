@@ -19,6 +19,8 @@
 #define HLCAN_CFG_PACKAGE_LEN	0x14
 #define HLCAN_CFG_CRC_IDX		0x02
 
+#define IO_CTL_MODE             0xF3
+
 typedef enum {
 	NONE,
 	RECEIVING,

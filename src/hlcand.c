@@ -336,6 +336,12 @@ int main(int argc, char *argv[])
 		exit(EXIT_FAILURE);
 	}
 
+	/* Change the mode according to the given command line paramter */
+	if (ioctl(fd, IO_CTL_MODE, mode) < 0) {
+		perror("ioctl mode");
+		exit(EXIT_FAILURE);
+	}
+
 	syslogger(LOG_NOTICE, "attached TTY %s to netdevice %s\n", ttypath, ifr.ifr_name);
 	
 	/* try to rename the created netdevice */

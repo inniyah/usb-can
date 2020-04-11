@@ -771,9 +771,6 @@ static int slcan_ioctl(struct tty_struct *tty, struct file *file,
 	}
 }
 
-static void hlcan_flush_to_ldisc(struct tty_struct *tty) {
-
-}
 
 
 static struct tty_ldisc_ops slc_ldisc = {
@@ -786,7 +783,6 @@ static struct tty_ldisc_ops slc_ldisc = {
 	.ioctl		= slcan_ioctl,
 	.receive_buf	= slcan_receive_buf,
 	.write_wakeup	= slcan_write_wakeup,
-	.flush_buffer	= hlcan_flush_to_ldisc,
 };
 
 static int __init slcan_init(void)

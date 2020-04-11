@@ -1,7 +1,10 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * slcand.c - userspace daemon for serial line CAN interface driver SLCAN
+ * hlcand.c - userspace daemon for serial line CAN interface driver HLCAN
  *
+ * Copyright (c) 2020 Alexander Mohr <hlcan@mohr.io>
+ *
+ * Based on slcand.c
  * Copyright (c) 2009 Robert Haddon <robert.haddon@verari.com>
  * Copyright (c) 2009 Verari Systems Inc.
  *
@@ -18,7 +21,6 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  *
- * Send feedback to <linux-can@vger.kernel.org>
  *
  */
 

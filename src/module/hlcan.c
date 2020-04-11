@@ -291,7 +291,6 @@ static void slcan_unesc(struct slcan *sl, unsigned char s)
 	}
 
 	sl->rbuff[sl->rcount++] = s;
-	//printk("new char received %i\n", s);
 
 	/* Only check state again after we received enough data */
 	if (RECEIVING == sl->rstate
@@ -325,8 +324,7 @@ static void slc_encaps(struct slcan *sl, struct can_frame *cf)
 	int actual, i;
 	unsigned char *pos;
 	u32 id;
-	
-	//printk("Sending frame to tty device");
+
 
 	pos = sl->xbuff;
 	*pos++ = HLCAN_PACKET_START;
@@ -516,7 +514,7 @@ static void slcan_receive_buf(struct tty_struct *tty,
 	struct slcan *sl = (struct slcan *) tty->disc_data;
 
 	if (!sl || sl->magic != HLCAN_MAGIC || !netif_running(sl->dev)){
-		printk("Serial device not ready\n");
+		printk("hlcan: Serial device not ready\n");
 		return;
 	}
 
@@ -874,7 +872,7 @@ static void __exit slcan_exit(void)
 
 	i = tty_unregister_ldisc(N_HLCAN);
 	if (i)
-		printk(KERN_ERR "slcan: can't unregister ldisc (err %d)\n", i);
+		printk(KERN_ERR "hlcan: can't unregister ldisc (err %d)\n", i);
 }
 
 module_init(slcan_init);

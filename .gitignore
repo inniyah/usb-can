@@ -11,3 +11,4 @@ hlcand
 *.ko
 Module.symvers
 modules.order
+update.sh

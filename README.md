@@ -38,6 +38,11 @@ modprobe can-dev
 insmod hlcan.ko
 ````
 
+Enable the interface
+````
+ip link set can0 up
+````
+
 Start hlcand
 Listen only 
 ````

@@ -1,5 +1,15 @@
 .idea
+.vscode
 CMakeFiles/
 cmake-*/
 *build*/
 .~lock.*
+
+hlcand
+.hlcan*
+*.mod*
+*.o
+*.ko
+Module.symvers
+modules.order
+src/module/update.sh

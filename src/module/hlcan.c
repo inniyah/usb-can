@@ -183,7 +183,7 @@ static void slc_bump(struct slcan *sl)
 {
 	struct sk_buff *skb;
 	struct can_frame cf;
-	unsigned char data_start = 4;
+	unsigned char data_start = 3;
 	/* idx 0 = packet header, skip it */
 	unsigned char *cmd = sl->rbuff + 1;
 	
@@ -192,17 +192,13 @@ static void slc_bump(struct slcan *sl)
 	
 	if (IS_REMOTE(*cmd)){
 		cf.can_id |= CAN_RTR_FLAG;
-		data_start = 6;
-	}
-
-	// echo mode aligns data a bit differnet
-	if (sl->mode == 1 || sl->mode == 3){
-		data_start--;
 	}
 
 	if (IS_EXT_ID(*cmd)) {
 		cf.can_id |= CAN_EFF_FLAG;
+		data_start = 5;
 	}
+
 	*(u64 *) (&cf.data) = 0; /* clear payload */
 	/* RTR frames may have a dlc > 0 but they never have any data bytes */
 	if (!(cf.can_id & CAN_RTR_FLAG)) {

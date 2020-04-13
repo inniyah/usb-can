@@ -208,10 +208,8 @@ int main(int argc, char *argv[])
 	char *uart_speed_str = NULL;
 	static struct ifreq ifr;
 	struct termios2 tios;
-	char *name = NULL;
 	char *tty = NULL;
 	char *pch;
-	char buf[20];
 	int fd, opt;
 
 	long int uart_speed = DEFAULT_UART_SPEED;
@@ -272,10 +270,6 @@ int main(int argc, char *argv[])
 	/* Parse serial device name and optional can interface name */
 	tty = argv[optind];
 	if (NULL == tty)
-		print_usage(argv[0]);
-
-	name = argv[optind + 1];
-	if (name && (strlen(name) > sizeof(ifr.ifr_newname) - 1))
 		print_usage(argv[0]);
 
 	/* Prepare the tty device name string */
@@ -346,28 +340,6 @@ int main(int argc, char *argv[])
 
 	syslogger(LOG_NOTICE, "attached TTY %s to netdevice %s\n", ttypath, ifr.ifr_name);
 	
-	/* try to rename the created netdevice */
-	if (name) {
-		int s = socket(PF_INET, SOCK_DGRAM, 0);
-
-		if (s < 0)
-			perror("socket for interface rename");
-		else {
-			/* current slcan%d name is still in ifr.ifr_name */
-			memset (ifr.ifr_newname, 0, sizeof(ifr.ifr_newname));
-			strncpy (ifr.ifr_newname, name, sizeof(ifr.ifr_newname) - 1);
-
-			if (ioctl(s, SIOCSIFNAME, &ifr) < 0) {
-				syslogger(LOG_NOTICE, "netdevice %s rename to %s failed\n", buf, name);
-				perror("ioctl SIOCSIFNAME rename");
-				exit(EXIT_FAILURE);
-			} else
-				syslogger(LOG_NOTICE, "netdevice %s renamed to %s\n", buf, name);
-
-			close(s);
-		}
-	}
-
 	/* Daemonize */
 	if (run_as_daemon) {
 		if (daemon(0, 0)) {

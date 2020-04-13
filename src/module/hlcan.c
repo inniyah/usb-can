@@ -744,12 +744,6 @@ static int slcan_ioctl(struct tty_struct *tty, struct file *file,
 		return -EINVAL;
 
 	switch (cmd) {
-	case SIOCGIFNAME:
-		tmp = strlen(sl->dev->name) + 1;
-		if (copy_to_user((void __user *)arg, sl->dev->name, tmp))
-			return -EFAULT;
-		return 0;
-
 	case SIOCSIFHWADDR:
 		return -EINVAL;
 

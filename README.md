@@ -6,6 +6,7 @@ It is based on the works https://github.com/kobolt/usb-can and the linux slcan d
 Adapters like the one below are supported
 
 ![alt text](USB-CAN.jpg)
+
 The adapters can be found everywhere on Ebay nowadays, but there is no official Linux support. Only a Windows binary file [stored directly on GitHub](https://github.com/SeeedDocument/USB-CAN_Analyzer).
 
 When plugged in, it will show something like this:

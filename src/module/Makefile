@@ -14,4 +14,4 @@ clean:
 install:
 	cp hlcan.ko /usr/lib/modules/$(shell uname -r)/kernel/drivers/net/can
 remove:
-	rm -rf /usr/lib/modules/$(shell uname -r)/kernel/drivers/net/can/hlcan.ko
+ 	find /usr/lib/modules/ -name hlcan.ko -exec rm {} \;

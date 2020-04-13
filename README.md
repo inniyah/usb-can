@@ -17,7 +17,7 @@ And the whole thing is actually a USB to serial converter, for which Linux will 
 ## Requirements
 * can-utils
 
-Please note that this module cannot be used together with slcan!
+**Please note that this module cannot be used together with slcan, make sure the module is not loaded and won't be loaded automatically!**
 
 ## Building & Installation
 To build the module and the userspace tools run ``make`` in ``src`` and ``src/modules`` or run
@@ -30,6 +30,12 @@ To install run ``make install`` in the folders listed above or
 ````
 ./build.sh install
 ````
+
+or to remove 
+````
+./build.sh remove
+````
+
 
 ## Usage
 Load the kernel module 

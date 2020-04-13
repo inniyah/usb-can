@@ -65,5 +65,8 @@ install:
 	mkdir -p $(DESTDIR)$(PREFIX)/bin
 	cp -f $(PROGRAMS) $(DESTDIR)$(PREFIX)/bin
 
+remove:
+	rm $(DESTDIR)$(PREFIX)/bin/$(PROGRAMS)
+
 distclean:
 	rm -f $(PROGRAMS) $(LIBRARIES) *.o *~

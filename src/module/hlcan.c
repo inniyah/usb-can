@@ -737,7 +737,6 @@ static int slcan_ioctl(struct tty_struct *tty, struct file *file,
 		       unsigned int cmd, unsigned long arg)
 {
 	struct slcan *sl = (struct slcan *) tty->disc_data;
-	unsigned int tmp;
 
 	/* First make sure we're connected. */
 	if (!sl || sl->magic != HLCAN_MAGIC)

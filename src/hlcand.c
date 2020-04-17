@@ -326,18 +326,6 @@ int main(int argc, char *argv[])
 		exit(EXIT_FAILURE);
 	}
 	
-	/* retrieve the name of the created CAN netdevice */
-	if (ioctl(fd, SIOCGIFNAME, ifr.ifr_name) < 0) {
-		perror("ioctl SIOCGIFNAME");
-		exit(EXIT_FAILURE);
-	}
-
-	/* Change the mode according to the given command line paramter */
-	if (ioctl(fd, IO_CTL_MODE, mode) < 0) {
-		perror("ioctl mode");
-		exit(EXIT_FAILURE);
-	}
-
 	syslogger(LOG_NOTICE, "attached TTY %s to netdevice %s\n", ttypath, ifr.ifr_name);
 	
 	/* Daemonize */

@@ -328,7 +328,7 @@ static void slc_encaps(struct slcan *sl, struct can_frame *cf)
 	*pos = HLCAN_FRAME_PREFIX;
 	*pos |= cf->can_dlc;
 	if (cf->can_id & CAN_RTR_FLAG) {
-		*pos &= HLCAN_FLAG_RTR;
+		*pos |= HLCAN_FLAG_RTR;
 	}
 
 	/* setup the frame id id */

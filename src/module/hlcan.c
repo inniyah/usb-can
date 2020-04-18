@@ -119,14 +119,11 @@ static struct net_device **slcan_devs;
 /*
  * Protocol handling
  */
-#define IS_EXT_ID(type)({ \
-		(type & HLCAN_TYPE_MASK) == (HCLAN_EXT_REMOTE_FRAME) || \
-		(type & HLCAN_TYPE_MASK) == HLCAN_EXT_DATA_FRAME; })
+#define CHECK_BIT(var,pos) ((var) & (1<<(pos)))
 
-#define IS_REMOTE(type) ({ \
-		(type & HLCAN_TYPE_MASK) == HCLAN_EXT_REMOTE_FRAME || \
-		(type & HLCAN_TYPE_MASK) == HCLAN_STD_REMOTE_FRAME; })
-
+#define IS_EXT_ID(type)(CHECK_BIT(type, 5))
+#define IS_REMOTE(type)(CHECK_BIT(type, 4))
+		
 /* checks if bit 7 and 6 is set */
 #define IS_DATA_PACKAGE(type) ({ \
 		((type >> 6) ^ 3) == 0;})

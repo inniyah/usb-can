@@ -12,6 +12,7 @@ all:
 clean:
 	make -C /lib/modules/$(shell uname -r)/build/ M=$(PWD) clean
 install:
+	mkdir -p /usr/lib/modules/$(shell uname -r)/kernel/drivers/net/can
 	cp hlcan.ko /usr/lib/modules/$(shell uname -r)/kernel/drivers/net/can
 remove:
 	find /usr/lib/modules/ -name hlcan.ko -exec rm {} \;

@@ -45,11 +45,6 @@ modprobe can-dev
 insmod hlcan.ko
 ````
 
-Enable the interface
-````
-ip link set can0 up
-````
-
 Start hlcand
 Listen only 
 ````
@@ -64,6 +59,11 @@ hlcand -F -s 500000 /dev/ttyUSB0
 Extended Frames
 ````
 hlcand -e -s 500000 /dev/ttyUSB0
+````
+
+Enable the interface
+````
+ip link set can0 up
 ````
 
 Help 

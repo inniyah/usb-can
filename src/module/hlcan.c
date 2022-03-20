@@ -147,8 +147,8 @@ static struct net_device **slcan_devs;
 
 /*
  * A CAN frame has a can_id (11 bit standard frame format OR 29 bit extended
- * frame format) a data length code (can_dlc) which can be from 0 to 8
- * and up to <can_dlc> data bytes as payload.
+ * frame format) a data length code (len) which can be from 0 to 8
+ * and up to <len> data bytes as payload.
  * Additionally a CAN frame may become a remote transmission frame if the
  * RTR-bit is set. This causes another ECU to send a CAN frame with the
  * given can_id.
@@ -184,7 +184,7 @@ static void slc_bump(struct slcan *sl)
 	/* idx 0 = packet header, skip it */
 	unsigned char *cmd = sl->rbuff + 1;
 	
-	cf.can_dlc = GET_DLC(*cmd);
+	cf.len = GET_DLC(*cmd);
 	cf.can_id = GET_FRAME_ID(sl->rbuff);
 	
 	if (IS_REMOTE(*cmd)){
@@ -201,7 +201,7 @@ static void slc_bump(struct slcan *sl)
 	if (!(cf.can_id & CAN_RTR_FLAG)) {
 		memcpy(cf.data, 
 			cmd + data_start,
-			cf.can_dlc);
+			cf.len);
 	}
 
 	skb = dev_alloc_skb(sizeof(struct can_frame) +
@@ -221,7 +221,7 @@ static void slc_bump(struct slcan *sl)
 	skb_put_data(skb, &cf, sizeof(struct can_frame));
 
 	sl->dev->stats.rx_packets++;
-	sl->dev->stats.rx_bytes += cf.can_dlc;
+	sl->dev->stats.rx_bytes += cf.len;
 	netif_rx(skb);
 }
 
@@ -323,7 +323,7 @@ static void slc_encaps(struct slcan *sl, struct can_frame *cf)
 	*pos++ = HLCAN_PACKET_START;
 	
 	*pos = HLCAN_FRAME_PREFIX;
-	*pos |= cf->can_dlc;
+	*pos |= cf->len;
 	if (cf->can_id & CAN_RTR_FLAG) {
 		*pos |= HLCAN_FLAG_RTR;
 	}
@@ -345,7 +345,7 @@ static void slc_encaps(struct slcan *sl, struct can_frame *cf)
 
 	/* RTR frames may have a dlc > 0 but they never have any data bytes */
 	if (!(cf->can_id & CAN_RTR_FLAG)) {
-		for (i = 0; i < cf->can_dlc; i++)
+		for (i = 0; i < cf->len; i++)
 			*pos++ = cf->data[i];
 	}
 
@@ -363,7 +363,7 @@ static void slc_encaps(struct slcan *sl, struct can_frame *cf)
 	actual = sl->tty->ops->write(sl->tty, sl->xbuff, pos - sl->xbuff);
 	sl->xleft = (pos - sl->xbuff) - actual;
 	sl->xhead = sl->xbuff + actual;
-	sl->dev->stats.tx_bytes += cf->can_dlc;
+	sl->dev->stats.tx_bytes += cf->len;
 }
 
 /* Write out any remaining transmit buffer. Scheduled when tty is writable */
@@ -616,6 +616,14 @@ static struct slcan *slc_alloc(void)
 	return sl;
 }
 
+/* Hook the destructor so we can free slcan devs at the right point in time */
+static void slc_free_netdev(struct net_device *dev)
+{
+	int i = dev->base_addr;
+
+	slcan_devs[i] = NULL;
+}
+
 /*
  * Open the high-level part of the SLCAN channel.
  * This function is called by the TTY module when the
@@ -688,6 +696,9 @@ err_free_chan:
 	tty->disc_data = NULL;
 	clear_bit(SLF_INUSE, &sl->flags);
 	slc_free_netdev(sl->dev);
+	/* do not call free_netdev before rtnl_unlock */
+	rtnl_unlock();
+	free_netdev(sl->dev);
 
 err_exit:
 	spin_unlock_bh(&global_lock);

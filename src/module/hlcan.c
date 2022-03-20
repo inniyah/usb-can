@@ -299,7 +299,7 @@ static void slcan_unesc(struct slcan *sl, unsigned char s)
 				slc_bump(sl);
 			}
 			sl->rexpected = 0;
-			/* fall through */
+			fallthrough;
 		case MISSED_HEADER:
 			sl->rcount = 0;
 			break;

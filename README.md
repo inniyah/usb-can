@@ -6,7 +6,7 @@ This is a small C program that dumps the CAN traffic for one these adapters:
 I belive the adapter was originally designed by [SeeedStudio](https://www.seeedstudio.com/USB-CAN-Analyzer-p-2888.html), atleast i have found the most "complete" version of documentation on what i assume is their github:[SeeedDocument](https://github.com/SeeedDocument/USB-CAN_Analyzer/tree/master/res/USB-CAN%20software%20and%20drive(v7.10)). The adapters can be found everywhere on Ebay nowadays, but there is no official Linux support. Only a Windows binary file [stored directly on GitHub](https://github.com/SeeedDocument/USB-CAN_Analyzer).
 
 ## Linux Support
-This fork of the original project made by kobolt **is able to dumb data frames with an extended CAN FrameID**. Note support for sending messages with an extended ID has yet to be added.
+This fork of the original project made by [Kobolt](https://github.com/kobolt) **is able to dumb data frames with an extended CAN FrameID**. Note support for sending messages with an extended ID has yet to be added.
 
 **Note:**
 

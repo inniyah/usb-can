@@ -29,6 +29,7 @@ typedef enum {
   CANUSB_SPEED_20000   = 0x0a,
   CANUSB_SPEED_10000   = 0x0b,
   CANUSB_SPEED_5000    = 0x0c,
+  CANUSB_SPEED_ERROR    = 0x0,
 } CANUSB_SPEED;
 
 typedef enum {
@@ -87,7 +88,7 @@ static CANUSB_SPEED canusb_int_to_speed(int speed)
   case 5000:
     return CANUSB_SPEED_5000;
   default:
-    return 0;
+    return CANUSB_SPEED_ERROR;
   }
 }
 
@@ -128,6 +129,12 @@ static int frame_is_complete(const unsigned char *frame, int frame_len)
     }
   } else if ((frame[1] >> 4) == 0xc) { /* Data frame... */
     if (frame_len >= (frame[1] & 0xf) + 5) { /* ...payload and 5 bytes. */
+      return 1;
+    } else {
+      return 0;
+    }
+      } else if ((frame[1] >> 4) == 0xe) { /* Extended Data frame... */
+    if (frame_len >= (frame[1] & 0xf) + 7) { /* ...payload and 5 bytes. */
       return 1;
     } else {
       return 0;
@@ -443,7 +450,14 @@ static void dump_data_frames(int tty_fd)
           printf("%02x ", frame[i]);
         }
         printf("\n");
-
+        } else if ((frame_len >= 6) &&
+          (frame[0] == 0xaa) &&
+          ((frame[1] >> 4) == 0xe)) {
+          printf("Frame ID: %02x%02x%02x%02x, Data: ", frame[5], frame[4], frame[3], frame[2]);
+        for (i = frame_len - 2; i > 5; i--) {
+          printf("%02x ", frame[i]);
+        }
+        printf("\n");
       } else {
         printf("Unknown: ");
         for (i = 0; i <= frame_len; i++) {
@@ -533,7 +547,7 @@ int main(int argc, char *argv[])
 {
   int c, tty_fd;
   char *tty_device = NULL, *inject_data = NULL, *inject_id = NULL;
-  CANUSB_SPEED speed = 0;
+  CANUSB_SPEED speed = CANUSB_SPEED_ERROR;
   int baudrate = CANUSB_TTY_BAUD_RATE_DEFAULT;
 
   while ((c = getopt(argc, argv, "htd:s:b:i:j:n:g:m:")) != -1) {
@@ -606,7 +620,7 @@ int main(int argc, char *argv[])
     return EXIT_FAILURE;
   }
 
-  command_settings(tty_fd, speed, CANUSB_MODE_NORMAL, CANUSB_FRAME_STANDARD);
+  command_settings(tty_fd, speed, CANUSB_MODE_NORMAL, CANUSB_FRAME_EXTENDED);
 
   if (inject_data == NULL) {
     /* Dumping mode (default). */

@@ -59,6 +59,7 @@
 #include <linux/can.h>
 #include <linux/can/dev.h>
 #include <linux/can/skb.h>
+#include <linux/version.h>
 
 #include "hlcan.h"
 
@@ -502,7 +503,11 @@ static const struct net_device_ops slc_netdev_ops = {
  * in parallel
  */
 static void slcan_receive_buf(struct tty_struct *tty,
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,15,0)
+			      const unsigned char *cp, const char *fp, int count)
+#else
 			      const unsigned char *cp, char *fp, int count)
+#endif
 {
 	struct slcan *sl = (struct slcan *) tty->disc_data;
 
@@ -735,15 +740,26 @@ static void slcan_close(struct tty_struct *tty)
 	/* This will complete via sl_free_netdev */
 }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,18,0)
+static void slcan_hangup(struct tty_struct *tty)
+#else
 static int slcan_hangup(struct tty_struct *tty)
+#endif
 {
 	slcan_close(tty);
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,18,0)
 	return 0;
+#endif
 }
 
 /* Perform I/O control on an active SLCAN channel. */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,18,0)
+static int slcan_ioctl(struct tty_struct *tty,
+		       unsigned int cmd, unsigned long arg)
+#else
 static int slcan_ioctl(struct tty_struct *tty, struct file *file,
 		       unsigned int cmd, unsigned long arg)
+#endif
 {
 	struct slcan *sl = (struct slcan *) tty->disc_data;
 
@@ -765,7 +781,11 @@ static int slcan_ioctl(struct tty_struct *tty, struct file *file,
 		return 0;
 
 	default:
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,18,0)
+		return tty_mode_ioctl(tty, cmd, arg);
+#else
 		return tty_mode_ioctl(tty, file, cmd, arg);
+#endif
 	}
 }
 
@@ -773,8 +793,13 @@ static int slcan_ioctl(struct tty_struct *tty, struct file *file,
 
 static struct tty_ldisc_ops slc_ldisc = {
 	.owner		= THIS_MODULE,
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,13,0)
 	.magic		= TTY_LDISC_MAGIC,
+#endif
 	.name		= "hlcan",
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,13,0)
+	.num		= N_HLCAN,
+#endif
 	.open		= slcan_open,
 	.close		= slcan_close,
 	.hangup		= slcan_hangup,
@@ -798,7 +823,11 @@ static int __init slcan_init(void)
 		return -ENOMEM;
 
 	/* Fill in our line protocol discipline, and register it */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,15,0)
+	status = tty_register_ldisc(&slc_ldisc);
+#else
 	status = tty_register_ldisc(N_HLCAN, &slc_ldisc);
+#endif
 	if (status)  {
 		printk(KERN_ERR "hlcan: can't register line discipline\n");
 		kfree(slcan_devs);
@@ -864,9 +893,13 @@ static void __exit slcan_exit(void)
 	kfree(slcan_devs);
 	slcan_devs = NULL;
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,15,0)
+	tty_unregister_ldisc(&slc_ldisc);
+#else
 	i = tty_unregister_ldisc(N_HLCAN);
 	if (i)
 		printk(KERN_ERR "hlcan: can't unregister ldisc (err %d)\n", i);
+#endif
 }
 
 module_init(slcan_init);

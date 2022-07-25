@@ -598,7 +598,7 @@ static struct slcan *slc_alloc(void)
 
 	/* this does not actually matter when we use the serial port */
 	/* todo set this to a propper value */
-	sl->can.clock.freq = 3686400000; 
+	sl->can.clock.freq = 3686400000u;
 	sl->can.data_bittiming_const = &hlcan_bittiming_const;
 	sl->can.bittiming.bitrate = 800000;
 	sl->can.do_set_mode = hlcan_do_set_mode;

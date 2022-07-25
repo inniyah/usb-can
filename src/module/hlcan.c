@@ -185,7 +185,11 @@ static void slc_bump(struct slcan *sl)
 	/* idx 0 = packet header, skip it */
 	unsigned char *cmd = sl->rbuff + 1;
 	
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,12,0)
 	cf.len = GET_DLC(*cmd);
+#else
+	cf.can_dlc = GET_DLC(*cmd);
+#endif
 	cf.can_id = GET_FRAME_ID(sl->rbuff);
 	
 	if (IS_REMOTE(*cmd)){
@@ -202,7 +206,11 @@ static void slc_bump(struct slcan *sl)
 	if (!(cf.can_id & CAN_RTR_FLAG)) {
 		memcpy(cf.data, 
 			cmd + data_start,
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,12,0)
 			cf.len);
+#else
+			cf.can_dlc);
+#endif
 	}
 
 	skb = dev_alloc_skb(sizeof(struct can_frame) +
@@ -222,7 +230,11 @@ static void slc_bump(struct slcan *sl)
 	skb_put_data(skb, &cf, sizeof(struct can_frame));
 
 	sl->dev->stats.rx_packets++;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,12,0)
 	sl->dev->stats.rx_bytes += cf.len;
+#else
+	sl->dev->stats.rx_bytes += cf.can_dlc;
+#endif
 	netif_rx(skb);
 }
 
@@ -324,7 +336,11 @@ static void slc_encaps(struct slcan *sl, struct can_frame *cf)
 	*pos++ = HLCAN_PACKET_START;
 	
 	*pos = HLCAN_FRAME_PREFIX;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,12,0)
 	*pos |= cf->len;
+#else
+	*pos |= cf->can_dlc;
+#endif
 	if (cf->can_id & CAN_RTR_FLAG) {
 		*pos |= HLCAN_FLAG_RTR;
 	}
@@ -346,7 +362,11 @@ static void slc_encaps(struct slcan *sl, struct can_frame *cf)
 
 	/* RTR frames may have a dlc > 0 but they never have any data bytes */
 	if (!(cf->can_id & CAN_RTR_FLAG)) {
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,12,0)
 		for (i = 0; i < cf->len; i++)
+#else
+		for (i = 0; i < cf->can_dlc; i++)
+#endif
 			*pos++ = cf->data[i];
 	}
 
@@ -364,7 +384,11 @@ static void slc_encaps(struct slcan *sl, struct can_frame *cf)
 	actual = sl->tty->ops->write(sl->tty, sl->xbuff, pos - sl->xbuff);
 	sl->xleft = (pos - sl->xbuff) - actual;
 	sl->xhead = sl->xbuff + actual;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,12,0)
 	sl->dev->stats.tx_bytes += cf->len;
+#else
+	sl->dev->stats.tx_bytes += cf->can_dlc;
+#endif
 }
 
 /* Write out any remaining transmit buffer. Scheduled when tty is writable */

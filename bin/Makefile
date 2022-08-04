@@ -46,9 +46,11 @@ PREFIX ?= /usr/local
 
 MAKEFLAGS := -k
 
-CFLAGS := -O2 -Wall -Wno-parentheses
+CFLAGS := -O2 -Wall -Wextra -Wstrict-prototypes -pedantic -Wno-parentheses
 
 CPPFLAGS += -D_GNU_SOURCE
+
+LDFLAGS= -Wl,--as-needed -Wl,--no-undefined -Wl,--no-allow-shlib-undefined
 
 PROGRAMS_HLCAN := \
 	hlcand

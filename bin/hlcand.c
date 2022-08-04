@@ -44,7 +44,7 @@
 #include <linux/serial.h>
 #include <stdarg.h>
 
-#include "module/hlcan.h"
+#include "../hlcan.h"
 
 /* Change this to whatever your daemon is called */
 #define DAEMON_NAME "hlcand"
